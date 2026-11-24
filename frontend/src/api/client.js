@@ -1,0 +1,82 @@
+// Centralized API Client
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
+export class ApiError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
+async function request(endpoint, options = {}) {
+  const token = localStorage.getItem('crm_token');
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const config = {
+    ...options,
+    headers,
+  };
+
+  if (config.body && typeof config.body === 'object' && !(config.body instanceof FormData)) {
+    config.body = JSON.stringify(config.body);
+  }
+
+  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+
+  try {
+    const response = await fetch(url, config);
+
+    // Handle unauthorized (expired token)
+    if (response.status === 401) {
+      if (token && !endpoint.includes('/auth/login')) {
+        localStorage.removeItem('crm_token');
+        localStorage.removeItem('crm_user');
+        window.dispatchEvent(new Event('auth:unauthorized'));
+      }
+    }
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new ApiError(
+        data.message || `HTTP error! status: ${response.status}`,
+        response.status,
+        data
+      );
+    }
+
+    return data;
+  } catch (err) {
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    throw new ApiError(err.message || 'Network request failed', 0, null);
+  }
+}
+
+export const api = {
+  get: (endpoint, params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        query.append(key, val);
+      }
+    });
+    const queryString = query.toString();
+    return request(queryString ? `${endpoint}?${queryString}` : endpoint, { method: 'GET' });
+  },
+  post: (endpoint, body) => request(endpoint, { method: 'POST', body }),
+  put: (endpoint, body) => request(endpoint, { method: 'PUT', body }),
+  patch: (endpoint, body) => request(endpoint, { method: 'PATCH', body }),
+  delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
+};
