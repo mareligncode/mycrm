@@ -1,5 +1,29 @@
-// Centralized API Client
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+// Centralized API Client with dynamic backend base URL from environment
+const resolveBaseUrl = () => {
+  const envUrl = (
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_BACKEND_URL ||
+    ''
+  ).trim();
+
+  if (!envUrl) {
+    return '/api';
+  }
+
+  // Remove trailing slashes
+  const cleanUrl = envUrl.replace(/\/+$/, '');
+
+  // If backend base URL was provided without '/api' (e.g. http://localhost:3000),
+  // append '/api' so all requests hit the backend route mount point
+  if (!cleanUrl.endsWith('/api')) {
+    return `${cleanUrl}/api`;
+  }
+
+  return cleanUrl;
+};
+
+export const BASE_URL = resolveBaseUrl();
 
 export class ApiError extends Error {
   constructor(message, status, data) {
@@ -31,7 +55,10 @@ async function request(endpoint, options = {}) {
     config.body = JSON.stringify(config.body);
   }
 
-  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+  const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = endpoint.startsWith('http://') || endpoint.startsWith('https://')
+    ? endpoint
+    : `${BASE_URL}${formattedEndpoint}`;
 
   try {
     const response = await fetch(url, config);
