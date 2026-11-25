@@ -4,6 +4,8 @@ import { generateRandomToken, hashToken, generateToken } from "../utils/token.js
 import { logActivity } from "../utils/activityLogger.js";
 import { createNotification } from "../utils/notificationService.js";
 import { sendTelegramMessage, shouldDispatchTelegramEvent } from "../utils/telegramService.js";
+import { sendEmail, isEmailConfigured } from "../utils/emailService.js";
+import { isValidEmail } from "../middleware/validate.js";
 
 // @desc    Create and send an invitation
 // @route   POST /api/invitations
@@ -12,8 +14,8 @@ export const createInvitation = async (req, res, next) => {
   try {
     const { email, role = "member" } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ success: false, message: "Email is required" });
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: "A valid email is required" });
     }
 
     const existingUser = await User.findOne({ email });
@@ -63,16 +65,32 @@ export const createInvitation = async (req, res, next) => {
       );
     }
 
+    const invitationUrl = `/accept-invitation?token=${rawToken}&email=${encodeURIComponent(email)}`;
+    const appBaseUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
+    const fullInviteLink = appBaseUrl ? `${appBaseUrl}${invitationUrl}` : invitationUrl;
+
+    let emailResult = { success: false, reason: "Email transport not configured" };
+    if (isEmailConfigured()) {
+      emailResult = await sendEmail({
+        to: email,
+        subject: "You are invited to join the CRM Workspace",
+        text: `Hello,\n\n${req.user.firstName} ${req.user.lastName} invited you to join the CRM as "${role}".\n\nComplete your setup here: ${fullInviteLink}\n\nThis invitation expires on ${expiresAt.toUTCString()}.`,
+      });
+    }
+
     res.status(201).json({
       success: true,
-      message: "Invitation created successfully",
+      message: emailResult.success
+        ? "Invitation created and emailed successfully"
+        : "Invitation created successfully",
       data: {
         _id: invitation._id,
         email: invitation.email,
         role: invitation.role,
         expiresAt: invitation.expiresAt,
         invitationToken: rawToken,
-        invitationUrl: `/accept-invitation?token=${rawToken}&email=${encodeURIComponent(email)}`,
+        invitationUrl,
+        emailSent: emailResult.success,
       },
     });
   } catch (error) {

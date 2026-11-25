@@ -1,8 +1,10 @@
 import Client from "../models/Client.js";
+import Deal from "../models/Deal.js";
 import Project from "../models/Project.js";
 import FollowUp from "../models/FollowUp.js";
 import Activity from "../models/Activity.js";
 import User from "../models/User.js";
+import { computePipelineForecast } from "./dealController.js";
 
 // @desc    Get dashboard metrics & summaries
 // @route   GET /api/dashboard
@@ -12,6 +14,7 @@ export const getDashboardStats = async (req, res, next) => {
     const [
       totalClients,
       clientsByStatus,
+      allDeals,
       totalProjects,
       projectsByStatus,
       pendingFollowUps,
@@ -24,6 +27,7 @@ export const getDashboardStats = async (req, res, next) => {
         { $match: { isArchived: false } },
         { $group: { _id: "$status", count: { $sum: 1 } } },
       ]),
+      Deal.find().select("stage amount probability"),
       Project.countDocuments(),
       Project.aggregate([
         { $group: { _id: "$status", count: { $sum: 1 } } },
@@ -54,6 +58,8 @@ export const getDashboardStats = async (req, res, next) => {
       projectsStatusMap[item._id] = item.count;
     });
 
+    const dealsForecast = computePipelineForecast(allDeals);
+
     res.status(200).json({
       success: true,
       data: {
@@ -63,9 +69,15 @@ export const getDashboardStats = async (req, res, next) => {
           totalUsers,
           pendingFollowUps,
           todayFollowUps,
+          openDeals: dealsForecast.openCount,
+          openPipelineValue: dealsForecast.openPipelineValue,
+          weightedForecast: dealsForecast.weightedForecast,
+          wonRevenue: dealsForecast.wonRevenue,
+          winRate: dealsForecast.winRate,
         },
         clientsByStatus: clientsStatusMap,
         projectsByStatus: projectsStatusMap,
+        dealsForecast,
         recentActivities,
       },
     });

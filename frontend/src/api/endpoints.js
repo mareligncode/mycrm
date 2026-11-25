@@ -21,6 +21,20 @@ export const clientsApi = {
   toggleArchive: (id) => api.patch(`/clients/${id}/archive`),
   addContact: (id, contact) => api.post(`/clients/${id}/contacts`, contact),
   removeContact: (id, contactId) => api.delete(`/clients/${id}/contacts/${contactId}`),
+  logTouchpoint: (id, data) => api.post(`/clients/${id}/touchpoints`, data),
+  exportCsv: () => api.downloadCsv('/clients/export', 'clients-export.csv'),
+  importCsv: (csvText) => api.post('/clients/import', { csvText }),
+};
+
+export const dealsApi = {
+  getAll: (params) => api.get('/deals', params),
+  getAnalytics: () => api.get('/deals/analytics'),
+  getById: (id) => api.get(`/deals/${id}`),
+  create: (data) => api.post('/deals', data),
+  update: (id, data) => api.put(`/deals/${id}`, data),
+  moveStage: (id, data) => api.patch(`/deals/${id}/stage`, data),
+  delete: (id) => api.delete(`/deals/${id}`),
+  exportCsv: () => api.downloadCsv('/deals/export', 'deals-export.csv'),
 };
 
 export const projectsApi = {

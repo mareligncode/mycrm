@@ -2,6 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard,
   Users,
+  TrendingUp,
   Briefcase,
   CalendarCheck,
   ShieldCheck,
@@ -21,6 +22,7 @@ export const Sidebar = ({ isOpen, onClose, activePage, setActivePage }) => {
   const navItems = [
     { id: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
     { id: 'clients', label: 'clients', icon: Users },
+    { id: 'deals', label: 'deals', icon: TrendingUp },
     { id: 'projects', label: 'projects', icon: Briefcase },
     { id: 'followups', label: 'followUps', icon: CalendarCheck },
     { id: 'team', label: 'team', icon: ShieldCheck, show: hasRole('super_admin', 'admin', 'manager') },

@@ -106,4 +106,24 @@ export const api = {
   put: (endpoint, body) => request(endpoint, { method: 'PUT', body }),
   patch: (endpoint, body) => request(endpoint, { method: 'PATCH', body }),
   delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
+  downloadCsv: async (endpoint, filename = 'export.csv') => {
+    const token = localStorage.getItem('crm_token');
+    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = `${BASE_URL}${formattedEndpoint}`;
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new ApiError(`Failed to export CSV (${res.status})`, res.status, null);
+    }
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  },
 };

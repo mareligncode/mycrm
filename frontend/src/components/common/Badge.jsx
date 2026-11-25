@@ -7,18 +7,22 @@ export const StatusBadge = ({ status }) => {
   const getBadgeClass = (s) => {
     switch (s) {
       case 'won':
+      case 'closed_won':
       case 'completed':
       case 'active':
         return 'crm-badge-success';
       case 'in_progress':
       case 'proposal_sent':
       case 'contacted':
+      case 'qualified':
+      case 'demo_scheduled':
         return 'crm-badge-info';
       case 'negotiation':
       case 'planning':
       case 'pending':
         return 'crm-badge-warning';
       case 'lost':
+      case 'closed_lost':
       case 'cancelled':
       case 'suspended':
       case 'urgent':

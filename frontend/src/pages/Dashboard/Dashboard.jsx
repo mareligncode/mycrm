@@ -11,13 +11,15 @@ import {
   Activity,
   CheckCircle2,
   Calendar,
+  DollarSign,
+  Target,
 } from 'lucide-react';
 import { dashboardApi, followUpsApi } from '../../api/endpoints';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { StatusBadge, PriorityBadge } from '../../components/common/Badge';
 
-export const Dashboard = ({ setActivePage, onOpenAddClient, onOpenAddProject, onOpenAddFollowUp }) => {
+export const Dashboard = ({ setActivePage, onOpenAddClient, onOpenAddDeal, onOpenAddProject, onOpenAddFollowUp }) => {
   const { t, formatDateTime, formatDate } = useLanguage();
   const { user } = useAuth();
 
@@ -84,6 +86,11 @@ export const Dashboard = ({ setActivePage, onOpenAddClient, onOpenAddProject, on
     totalUsers: 0,
     pendingFollowUps: 0,
     todayFollowUps: 0,
+    openDeals: 0,
+    openPipelineValue: 0,
+    weightedForecast: 0,
+    wonRevenue: 0,
+    winRate: 0,
   };
 
   const clientStatuses = stats?.clientsByStatus || {};
@@ -98,6 +105,22 @@ export const Dashboard = ({ setActivePage, onOpenAddClient, onOpenAddProject, on
       color: 'var(--primary)',
       bg: 'var(--primary-light)',
       page: 'clients',
+    },
+    {
+      title: 'openPipeline',
+      value: `$${(summary.openPipelineValue || 0).toLocaleString()}`,
+      icon: DollarSign,
+      color: '#8b5cf6',
+      bg: 'rgba(139, 92, 246, 0.12)',
+      page: 'deals',
+    },
+    {
+      title: 'weightedForecast',
+      value: `$${(summary.weightedForecast || 0).toLocaleString()}`,
+      icon: Target,
+      color: 'var(--success)',
+      bg: 'var(--success-bg)',
+      page: 'deals',
     },
     {
       title: 'activeProjects',
@@ -171,6 +194,16 @@ export const Dashboard = ({ setActivePage, onOpenAddClient, onOpenAddProject, on
             <Plus size={16} />
             <span>{t('newClient')}</span>
           </button>
+          {onOpenAddDeal && (
+            <button
+              onClick={onOpenAddDeal}
+              className="crm-btn crm-btn-secondary"
+              style={{ fontSize: '0.825rem' }}
+            >
+              <TrendingUp size={16} />
+              <span>{t('newDeal')}</span>
+            </button>
+          )}
           <button
             onClick={onOpenAddProject}
             className="crm-btn crm-btn-secondary"

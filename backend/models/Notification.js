@@ -15,6 +15,8 @@ const notificationSchema = new mongoose.Schema({
     enum: [
       "invitation",
       "new_client",
+      "new_deal",
+      "deal_update",
       "new_project",
       "project_update",
       "followup_reminder",
@@ -32,7 +34,7 @@ const notificationSchema = new mongoose.Schema({
 
   entityType: {
     type: String,
-    enum: ["client", "project", "followup", "user"],
+    enum: ["client", "deal", "project", "followup", "user"],
   },
 
   entityId: mongoose.Schema.Types.ObjectId,

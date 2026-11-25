@@ -35,14 +35,20 @@ const clientSchema = new mongoose.Schema({
 
   source: {
     type: String,
-    enum: ["website", "telegram", "linkedin", "facebook", "referral", "direct", "other"],
+    enum: ["website", "telegram", "linkedin", "facebook", "referral", "cold_call", "direct", "other"],
     default: "other",
   },
 
   status: {
     type: String,
-    enum: ["lead", "prospect", "negotiation", "active", "inactive", "lost"],
+    enum: ["lead", "contacted", "prospect", "proposal_sent", "negotiation", "won", "active", "inactive", "lost"],
     default: "lead",
+  },
+
+  estimatedValue: {
+    type: Number,
+    default: 0,
+    min: 0,
   },
 
   assignedTo: [{
@@ -52,6 +58,7 @@ const clientSchema = new mongoose.Schema({
 
   tags: [String],
   description: String,
+  notes: String,
 
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 

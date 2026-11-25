@@ -13,6 +13,7 @@ import { RegisterAdmin } from './pages/Auth/RegisterAdmin';
 import { AcceptInvite } from './pages/Auth/AcceptInvite';
 import { Dashboard } from './pages/Dashboard/Dashboard';
 import { Clients } from './pages/Clients/Clients';
+import { Deals } from './pages/Deals/Deals';
 import { Projects } from './pages/Projects/Projects';
 import { FollowUps } from './pages/FollowUps/FollowUps';
 import { Team } from './pages/Team/Team';
@@ -29,6 +30,7 @@ function MainApp() {
 
   // Quick modals triggers across pages
   const [openNewClientModal, setOpenNewClientModal] = useState(false);
+  const [openNewDealModal, setOpenNewDealModal] = useState(false);
   const [openNewProjectModal, setOpenNewProjectModal] = useState(false);
   const [openNewFollowUpModal, setOpenNewFollowUpModal] = useState(false);
 
@@ -111,6 +113,10 @@ function MainApp() {
                 setActivePage('clients');
                 setOpenNewClientModal(true);
               }}
+              onOpenAddDeal={() => {
+                setActivePage('deals');
+                setOpenNewDealModal(true);
+              }}
               onOpenAddProject={() => {
                 setActivePage('projects');
                 setOpenNewProjectModal(true);
@@ -126,6 +132,13 @@ function MainApp() {
             <Clients
               isOpenNewModal={openNewClientModal}
               onCloseNewModal={() => setOpenNewClientModal(false)}
+            />
+          )}
+
+          {activePage === 'deals' && (
+            <Deals
+              isOpenNewModal={openNewDealModal}
+              onCloseNewModal={() => setOpenNewDealModal(false)}
             />
           )}
 

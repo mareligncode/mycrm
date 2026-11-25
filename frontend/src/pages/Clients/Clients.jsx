@@ -17,6 +17,13 @@ import {
   Tag,
   DollarSign,
   UserPlus,
+  Download,
+  Upload,
+  MessageSquare,
+  Send,
+  Briefcase,
+  TrendingUp,
+  Clock,
 } from 'lucide-react';
 import { clientsApi, usersApi } from '../../api/endpoints';
 import { useLanguage } from '../../context/LanguageContext';
@@ -42,7 +49,22 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isAddContactModalOpen, setIsAddContactModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [csvText, setCsvText] = useState('');
+  const [importResult, setImportResult] = useState(null);
   const [selectedClient, setSelectedClient] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [touchpointForm, setTouchpointForm] = useState({
+    type: 'note',
+    subject: '',
+    content: '',
+    sendOutboundEmail: false,
+  });
+
+  const getPrimaryAssignee = (assignedTo) => {
+    if (Array.isArray(assignedTo)) return assignedTo[0] || null;
+    return assignedTo || null;
+  };
 
   // Form states
   const initialForm = {
@@ -139,6 +161,7 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
   };
 
   const handleOpenEdit = (client) => {
+    const primaryAssignee = getPrimaryAssignee(client.assignedTo);
     setSelectedClient(client);
     setFormData({
       clientName: client.clientName || '',
@@ -151,11 +174,66 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
       website: client.website || '',
       industry: client.industry || '',
       estimatedValue: client.estimatedValue || '',
-      assignedTo: client.assignedTo?._id || client.assignedTo || '',
-      notes: client.notes || '',
+      assignedTo: primaryAssignee?._id || primaryAssignee || '',
+      notes: client.notes || client.description || '',
       tags: Array.isArray(client.tags) ? client.tags.join(', ') : '',
     });
     setIsEditModalOpen(true);
+  };
+
+  const handleOpenDetail = async (client) => {
+    setSelectedClient(client);
+    setIsDetailModalOpen(true);
+    setDetailLoading(true);
+    try {
+      const res = await clientsApi.getById(client._id);
+      if (res.success && res.data) {
+        setSelectedClient(res.data);
+      }
+    } catch (err) {
+      console.error('Error loading client details:', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleLogTouchpoint = async (e) => {
+    e.preventDefault();
+    if (!selectedClient) return;
+    try {
+      const res = await clientsApi.logTouchpoint(selectedClient._id, touchpointForm);
+      if (res.success) {
+        setTouchpointForm({ type: 'note', subject: '', content: '', sendOutboundEmail: false });
+        const refreshed = await clientsApi.getById(selectedClient._id);
+        if (refreshed.success) setSelectedClient(refreshed.data);
+        if (touchpointForm.sendOutboundEmail && res.emailResult && !res.emailResult.success) {
+          alert(`Activity logged, but email was not sent: ${res.emailResult.reason || res.emailResult.error}`);
+        }
+      }
+    } catch (err) {
+      alert(err.message || 'Error logging touchpoint');
+    }
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      await clientsApi.exportCsv();
+    } catch (err) {
+      alert(err.message || 'Error exporting clients CSV');
+    }
+  };
+
+  const handleImportCsv = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await clientsApi.importCsv(csvText);
+      if (res.success) {
+        setImportResult(res);
+        fetchClients();
+      }
+    } catch (err) {
+      alert(err.message || 'Error importing CSV');
+    }
   };
 
   const handleUpdateClient = async (e) => {
@@ -242,16 +320,36 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setFormData(initialForm);
-            setIsCreateModalOpen(true);
-          }}
-          className="crm-btn crm-btn-primary"
-        >
-          <Plus size={16} />
-          <span>{t('addNewClient')}</span>
-        </button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <button
+            onClick={handleExportCsv}
+            className="crm-btn crm-btn-secondary"
+          >
+            <Download size={16} />
+            <span>{t('exportCsv')}</span>
+          </button>
+          <button
+            onClick={() => {
+              setCsvText('');
+              setImportResult(null);
+              setIsImportModalOpen(true);
+            }}
+            className="crm-btn crm-btn-secondary"
+          >
+            <Upload size={16} />
+            <span>{t('importCsv')}</span>
+          </button>
+          <button
+            onClick={() => {
+              setFormData(initialForm);
+              setIsCreateModalOpen(true);
+            }}
+            className="crm-btn crm-btn-primary"
+          >
+            <Plus size={16} />
+            <span>{t('addNewClient')}</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -356,10 +454,7 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
                   <td>
                     <div>
                       <span
-                        onClick={() => {
-                          setSelectedClient(c);
-                          setIsDetailModalOpen(true);
-                        }}
+                        onClick={() => handleOpenDetail(c)}
                         style={{
                           fontWeight: 600,
                           color: 'var(--primary)',
@@ -396,35 +491,35 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
                     </span>
                   </td>
                   <td>
-                    {c.assignedTo ? (
-                      <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <span style={{
-                          width: '20px',
-                          height: '20px',
-                          borderRadius: '50%',
-                          backgroundColor: 'var(--primary-light)',
-                          color: 'var(--primary-text)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.65rem',
-                          fontWeight: 700,
-                        }}>
-                          {c.assignedTo.firstName ? c.assignedTo.firstName[0].toUpperCase() : 'U'}
+                    {(() => {
+                      const assignee = getPrimaryAssignee(c.assignedTo);
+                      return assignee ? (
+                        <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{
+                            width: '20px',
+                            height: '20px',
+                            borderRadius: '50%',
+                            backgroundColor: 'var(--primary-light)',
+                            color: 'var(--primary-text)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                          }}>
+                            {assignee.firstName ? assignee.firstName[0].toUpperCase() : 'U'}
+                          </span>
+                          {assignee.firstName} {assignee.lastName}
                         </span>
-                        {c.assignedTo.firstName} {c.assignedTo.lastName}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
-                    )}
+                      ) : (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+                      );
+                    })()}
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
                       <button
-                        onClick={() => {
-                          setSelectedClient(c);
-                          setIsDetailModalOpen(true);
-                        }}
+                        onClick={() => handleOpenDetail(c)}
                         className="crm-btn-ghost"
                         style={{ padding: '0.35rem', borderRadius: '6px', border: 'none', cursor: 'pointer' }}
                         title={t('details')}
@@ -718,22 +813,168 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
               <div>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('assignedTo')}</span>
                 <p style={{ margin: 0, fontWeight: 600 }}>
-                  {selectedClient.assignedTo ? `${selectedClient.assignedTo.firstName} ${selectedClient.assignedTo.lastName}` : '-'}
+                  {(() => {
+                    const assignee = getPrimaryAssignee(selectedClient.assignedTo);
+                    return assignee ? `${assignee.firstName} ${assignee.lastName}` : '-';
+                  })()}
                 </p>
               </div>
             </div>
 
             {/* Notes */}
-            {selectedClient.notes && (
+            {(selectedClient.notes || selectedClient.description) && (
               <div>
                 <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem' }}>
                   {t('notes')}
                 </h4>
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', whiteSpace: 'pre-line' }}>
-                  {selectedClient.notes}
+                  {selectedClient.notes || selectedClient.description}
                 </p>
               </div>
             )}
+
+            {/* Quick Touchpoint / Email Logger */}
+            <form
+              onSubmit={handleLogTouchpoint}
+              style={{
+                padding: '0.85rem',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--bg-surface-hover)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.6rem',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <strong style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <MessageSquare size={15} style={{ color: 'var(--primary)' }} />
+                  {t('logTouchpoint')}
+                </strong>
+                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  {[
+                    { key: 'note', label: 'touchpointNote' },
+                    { key: 'call', label: 'touchpointCall' },
+                    { key: 'email', label: 'touchpointEmail' },
+                    { key: 'meeting', label: 'touchpointMeeting' },
+                  ].map((tp) => (
+                    <button
+                      type="button"
+                      key={tp.key}
+                      onClick={() => setTouchpointForm({ ...touchpointForm, type: tp.key })}
+                      className={`crm-btn ${touchpointForm.type === tp.key ? 'crm-btn-primary' : 'crm-btn-secondary'}`}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem' }}
+                    >
+                      {t(tp.label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {touchpointForm.type === 'email' && (
+                <input
+                  type="text"
+                  value={touchpointForm.subject}
+                  onChange={(e) => setTouchpointForm({ ...touchpointForm, subject: e.target.value })}
+                  placeholder="Email subject..."
+                  className="crm-input"
+                  style={{ fontSize: '0.8rem' }}
+                />
+              )}
+
+              <textarea
+                rows={2}
+                required
+                value={touchpointForm.content}
+                onChange={(e) => setTouchpointForm({ ...touchpointForm, content: e.target.value })}
+                placeholder={`Log a ${touchpointForm.type} summary...`}
+                className="crm-input"
+                style={{ fontSize: '0.8rem' }}
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {touchpointForm.type === 'email' && selectedClient.email ? (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={touchpointForm.sendOutboundEmail}
+                      onChange={(e) => setTouchpointForm({ ...touchpointForm, sendOutboundEmail: e.target.checked })}
+                    />
+                    <span>{t('sendOutboundEmail')} ({selectedClient.email})</span>
+                  </label>
+                ) : <span />}
+
+                <button type="submit" className="crm-btn crm-btn-primary" style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem' }}>
+                  <Send size={13} />
+                  <span>{t('logTouchpoint')}</span>
+                </button>
+              </div>
+            </form>
+
+            {/* Associated Deals & Projects Summary */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+              <div style={{ padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <h4 style={{ fontSize: '0.82rem', fontWeight: 600, margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <TrendingUp size={14} style={{ color: 'var(--primary)' }} />
+                  {t('associatedDeals')} ({selectedClient.deals?.length || 0})
+                </h4>
+                {!selectedClient.deals || selectedClient.deals.length === 0 ? (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>{t('noData')}</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {selectedClient.deals.map((dl) => (
+                      <div key={dl._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                        <span>{dl.title}</span>
+                        <span style={{ fontWeight: 600 }}>{dl.currency || 'USD'} {(dl.amount || 0).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <h4 style={{ fontSize: '0.82rem', fontWeight: 600, margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Briefcase size={14} style={{ color: 'var(--info)' }} />
+                  {t('associatedProjects')} ({selectedClient.projects?.length || 0})
+                </h4>
+                {!selectedClient.projects || selectedClient.projects.length === 0 ? (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>{t('noData')}</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {selectedClient.projects.map((pr) => (
+                      <div key={pr._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                        <span>{pr.projectName}</span>
+                        <StatusBadge status={pr.status} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 360° Activity Timeline */}
+            <div>
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 0.6rem 0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Clock size={15} style={{ color: 'var(--primary)' }} />
+                {t('timeline')} ({selectedClient.activities?.length || 0})
+              </h4>
+              {detailLoading ? (
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('loading')}</p>
+              ) : !selectedClient.activities || selectedClient.activities.length === 0 ? (
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>{t('noActivitiesYet')}</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: '200px', overflowY: 'auto' }}>
+                  {selectedClient.activities.map((act) => (
+                    <div key={act._id} style={{ padding: '0.55rem 0.75rem', borderRadius: '6px', backgroundColor: 'var(--bg-muted)', fontSize: '0.78rem' }}>
+                      <div style={{ color: 'var(--text-main)' }}>
+                        <strong>{act.performedBy ? `${act.performedBy.firstName} ${act.performedBy.lastName}` : 'System'}</strong>: {act.description}
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{formatDate(act.createdAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Contacts Section */}
             <div>
@@ -876,6 +1117,59 @@ export const Clients = ({ isOpenNewModal, onCloseNewModal }) => {
             </button>
             <button type="submit" className="crm-btn crm-btn-primary">
               {t('add')}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* CSV Import Modal */}
+      <Modal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        title={t('importClientsTitle')}
+        maxWidth="560px"
+      >
+        <form onSubmit={handleImportCsv} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+            {t('csvPasteHelp')}
+          </p>
+
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = (ev) => setCsvText(String(ev.target?.result || ''));
+              reader.readAsText(file);
+            }}
+            className="crm-input"
+          />
+
+          <textarea
+            rows={7}
+            required
+            value={csvText}
+            onChange={(e) => setCsvText(e.target.value)}
+            placeholder={`clientName,companyName,email,phone,status,source,estimatedValue\nAbebe Kebede,Acme PLC,abebe@acme.com,+251911000000,lead,website,5000`}
+            className="crm-input"
+            style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}
+          />
+
+          {importResult && (
+            <div style={{ padding: '0.75rem', borderRadius: '8px', backgroundColor: 'var(--bg-muted)', fontSize: '0.82rem' }}>
+              Imported: <strong>{importResult.importedCount}</strong> • Errors: <strong>{importResult.errorCount}</strong>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+            <button type="button" onClick={() => setIsImportModalOpen(false)} className="crm-btn crm-btn-secondary">
+              {t('close')}
+            </button>
+            <button type="submit" className="crm-btn crm-btn-primary">
+              <Upload size={15} />
+              <span>{t('importCsv')}</span>
             </button>
           </div>
         </form>
