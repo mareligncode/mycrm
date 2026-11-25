@@ -3,7 +3,7 @@ import { useLanguage } from '../../context/LanguageContext';
 
 export const StatusBadge = ({ status }) => {
   const { t } = useLanguage();
-  
+
   const getBadgeClass = (s) => {
     switch (s) {
       case 'won':
@@ -36,8 +36,8 @@ export const StatusBadge = ({ status }) => {
 
   return (
     <span className={`crm-badge ${getBadgeClass(status)}`}>
-      <span className="inline-block w-1.5 h-1.5 rounded-full bg-current opacity-70"></span>
-      {t(status) || status}
+      <span className="crm-badge-dot" />
+      <span>{t(status) || status}</span>
     </span>
   );
 };
@@ -98,8 +98,8 @@ export const CadenceLevelBadge = ({ level = 1 }) => {
   const config = {
     1: { label: t('level1Short') || 'L1: Outreach', bg: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6', border: 'rgba(59, 130, 246, 0.3)' },
     2: { label: t('level2Short') || 'L2: Demo', bg: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9', border: 'rgba(14, 165, 233, 0.3)' },
-    3: { label: t('level3Short') || 'L3: Proposal', bg: 'rgba(234, 179, 8, 0.12)', color: '#eab308', border: 'rgba(234, 179, 8, 0.3)' },
-    4: { label: t('level4Short') || 'L4: Negotiation', bg: 'rgba(249, 115, 22, 0.12)', color: '#f97316', border: 'rgba(249, 115, 22, 0.3)' },
+    3: { label: t('level3Short') || 'L3: Proposal', bg: 'rgba(234, 179, 8, 0.12)', color: '#d97706', border: 'rgba(234, 179, 8, 0.3)' },
+    4: { label: t('level4Short') || 'L4: Negotiation', bg: 'rgba(249, 115, 22, 0.12)', color: '#ea580c', border: 'rgba(249, 115, 22, 0.3)' },
     5: { label: t('level5Short') || 'L5: Closing', bg: 'rgba(16, 185, 129, 0.12)', color: '#10b981', border: 'rgba(16, 185, 129, 0.3)' },
   };
 
@@ -117,7 +117,7 @@ export const CadenceLevelBadge = ({ level = 1 }) => {
         letterSpacing: '0.02em',
       }}
     >
-      🎯 {current.label}
+      {current.label}
     </span>
   );
 };
@@ -137,7 +137,7 @@ export const EscalationBadge = ({ tier = 'standard' }) => {
 
   return (
     <span className={`crm-badge ${current.badgeClass}`} style={{ fontSize: '0.7rem', fontWeight: 700 }}>
-      ⚠️ {current.label}
+      {current.label}
     </span>
   );
 };
@@ -151,26 +151,26 @@ export const SlaBadge = ({ slaStatus }) => {
     case 'breached':
       return (
         <span className="crm-badge crm-badge-danger" style={{ fontSize: '0.7rem', fontWeight: 700 }}>
-          🚨 {t('slaBreached') || 'SLA Breached (>48h)'}
+          {t('slaBreached') || 'SLA Breached (>48h)'}
         </span>
       );
     case 'overdue':
       return (
         <span className="crm-badge crm-badge-danger" style={{ fontSize: '0.7rem' }}>
-          ⏱️ {t('slaOverdue') || 'SLA Overdue'}
+          {t('slaOverdue') || 'SLA Overdue'}
         </span>
       );
     case 'due_soon':
       return (
         <span className="crm-badge crm-badge-warning" style={{ fontSize: '0.7rem' }}>
-          ⏳ {t('dueSoon') || 'Due Soon'}
+          {t('dueSoon') || 'Due Soon'}
         </span>
       );
     case 'on_track':
     default:
       return (
         <span className="crm-badge crm-badge-neutral" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-          🟢 {t('onTrack') || 'On Track'}
+          {t('onTrack') || 'On Track'}
         </span>
       );
   }

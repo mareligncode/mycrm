@@ -11,206 +11,246 @@ import {
   LogOut,
   X,
   Layers,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { Avatar } from './Avatar';
 
-export const Sidebar = ({ isOpen, onClose, activePage, setActivePage }) => {
+export const Sidebar = ({
+  isOpen,
+  onClose,
+  collapsed,
+  onToggleCollapse,
+  activePage,
+  setActivePage,
+}) => {
   const { t } = useLanguage();
   const { user, logout, hasRole } = useAuth();
 
-  const navItems = [
-    { id: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
-    { id: 'clients', label: 'clients', icon: Users },
-    { id: 'deals', label: 'deals', icon: TrendingUp },
-    { id: 'projects', label: 'projects', icon: Briefcase },
-    { id: 'followups', label: 'followUps', icon: CalendarCheck },
-    { id: 'team', label: 'team', icon: ShieldCheck, show: hasRole('super_admin', 'admin', 'manager') },
-    { id: 'telegram', label: 'telegram', icon: Send, show: hasRole('super_admin', 'admin') },
-    { id: 'profile', label: 'profile', icon: User },
-  ].filter((item) => item.show === undefined || item.show);
+  const navGroups = [
+    {
+      title: 'workspace',
+      items: [
+        { id: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
+        { id: 'clients', label: 'clients', icon: Users },
+        { id: 'followups', label: 'followUps', icon: CalendarCheck },
+      ],
+    },
+    {
+      title: 'pipelineAndDelivery',
+      items: [
+        { id: 'deals', label: 'deals', icon: TrendingUp },
+        { id: 'projects', label: 'projects', icon: Briefcase },
+      ],
+    },
+    {
+      title: 'administration',
+      items: [
+        { id: 'team', label: 'team', icon: ShieldCheck, show: hasRole('super_admin', 'admin', 'manager') },
+        { id: 'telegram', label: 'telegram', icon: Send, show: hasRole('super_admin', 'admin') },
+        { id: 'profile', label: 'profile', icon: User },
+      ].filter((item) => item.show === undefined || item.show),
+    },
+  ];
 
   const handleNavClick = (id) => {
     setActivePage(id);
-    if (window.innerWidth < 1024) {
-      onClose();
-    }
+    onClose();
   };
+
+  const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'User';
 
   return (
     <>
       {/* Mobile Backdrop */}
-      {isOpen && (
-        <div
-          onClick={onClose}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            backdropFilter: 'blur(3px)',
-            zIndex: 48,
-            display: window.innerWidth < 1024 ? 'block' : 'none',
-          }}
-        />
-      )}
+      <div
+        onClick={onClose}
+        className={`crm-sidebar-backdrop ${isOpen ? 'is-open' : ''}`}
+      />
 
       {/* Sidebar Container */}
-      <aside
-        style={{
-          width: '260px',
-          backgroundColor: 'var(--bg-surface)',
-          borderRight: '1px solid var(--border-color)',
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100vh',
-          position: 'sticky',
-          top: 0,
-          zIndex: 49,
-          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-          ...(window.innerWidth < 1024
-            ? {
-                position: 'fixed',
-                transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
-              }
-            : {}),
-        }}
-      >
+      <aside className={`crm-sidebar ${isOpen ? 'is-open' : ''} ${collapsed ? 'crm-sidebar--collapsed' : ''}`}>
         {/* Brand Header */}
-        <div style={{
-          height: '64px',
-          padding: '0 1.25rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid var(--border-color)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              backgroundColor: 'var(--primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#ffffff',
-              boxShadow: '0 4px 10px rgba(79, 70, 229, 0.35)',
-            }}>
-              <Layers size={20} />
+        <div
+          style={{
+            height: '64px',
+            padding: collapsed ? '0 0.75rem' : '0 1.15rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: collapsed ? 'center' : 'space-between',
+            borderBottom: '1px solid var(--border-color)',
+            gap: '0.5rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+            <div
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                background: 'var(--primary-gradient)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ffffff',
+                boxShadow: '0 4px 12px rgba(79, 70, 229, 0.32)',
+                flexShrink: 0,
+              }}
+            >
+              <Layers size={19} />
             </div>
-            <div>
-              <h1 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)', margin: 0, lineHeight: 1.2 }}>
-                {t('crmTitle')}
-              </h1>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0 }}>
-                {t('crmSubtitle')}
-              </p>
-            </div>
+            {!collapsed && (
+              <div style={{ minWidth: 0 }}>
+                <h1
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: '0.96rem',
+                    fontWeight: 700,
+                    color: 'var(--text-main)',
+                    margin: 0,
+                    lineHeight: 1.2,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {t('crmTitle')}
+                </h1>
+                <p
+                  style={{
+                    fontSize: '0.68rem',
+                    color: 'var(--text-muted)',
+                    margin: 0,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {t('crmSubtitle')}
+                </p>
+              </div>
+            )}
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="crm-btn-ghost"
-            style={{
-              padding: '0.25rem',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: 'pointer',
-              display: window.innerWidth < 1024 ? 'flex' : 'none',
-            }}
+            className="crm-btn crm-btn-ghost crm-btn-icon crm-sidebar-close-btn"
+            aria-label="Close navigation"
           >
-            <X size={20} />
+            <X size={19} />
           </button>
         </div>
 
-        {/* Navigation Links */}
-        <nav style={{ flex: 1, padding: '1rem 0.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activePage === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => handleNavClick(item.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  width: '100%',
-                  padding: '0.65rem 0.85rem',
-                  borderRadius: '8px',
-                  fontSize: '0.875rem',
-                  fontWeight: isActive ? 600 : 500,
-                  backgroundColor: isActive ? 'var(--primary-light)' : 'transparent',
-                  color: isActive ? 'var(--primary-text)' : 'var(--text-secondary)',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease',
-                  position: 'relative',
-                }}
-              >
-                {isActive && (
-                  <span style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: '20%',
-                    bottom: '20%',
-                    width: '3.5px',
-                    borderRadius: '0 4px 4px 0',
-                    backgroundColor: 'var(--primary)',
-                  }} />
-                )}
-                <Icon size={18} style={{ color: isActive ? 'var(--primary)' : 'inherit', flexShrink: 0 }} />
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {t(item.label)}
-                </span>
-              </button>
-            );
-          })}
+        {/* Navigation Groups */}
+        <nav style={{ flex: 1, padding: '0.9rem 0.65rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+          {navGroups.map((group) => (
+            <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              {!collapsed && (
+                <div
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.07em',
+                    color: 'var(--text-muted)',
+                    padding: '0 0.75rem 0.35rem 0.75rem',
+                  }}
+                >
+                  {t(group.title)}
+                </div>
+              )}
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activePage === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleNavClick(item.id)}
+                    title={collapsed ? t(item.label) : undefined}
+                    className={`crm-sidebar-nav-btn ${isActive ? 'is-active' : ''}`}
+                    style={{
+                      justifyContent: collapsed ? 'center' : 'flex-start',
+                      padding: collapsed ? '0.68rem' : '0.625rem 0.85rem',
+                    }}
+                  >
+                    <Icon size={18} style={{ color: isActive ? 'var(--primary)' : 'inherit', flexShrink: 0 }} />
+                    {!collapsed && (
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {t(item.label)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
-        {/* Footer / User & Logout */}
-        <div style={{
-          padding: '1rem',
-          borderTop: '1px solid var(--border-color)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.75rem',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '9999px',
-              backgroundColor: 'var(--primary-light)',
-              color: 'var(--primary-text)',
+        {/* Footer / Collapse + User & Logout */}
+        <div
+          style={{
+            padding: '0.85rem 0.75rem',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.65rem',
+          }}
+        >
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="crm-btn crm-btn-ghost crm-btn-sm"
+            style={{
+              width: '100%',
+              justifyContent: collapsed ? 'center' : 'space-between',
+              color: 'var(--text-muted)',
+            }}
+            title={collapsed ? t('expandSidebar') : t('collapseSidebar')}
+          >
+            {!collapsed && <span style={{ fontSize: '0.75rem' }}>{t('collapseSidebar')}</span>}
+            {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+          </button>
+
+          <div
+            onClick={() => handleNavClick('profile')}
+            style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 700,
-              fontSize: '0.85rem',
-              flexShrink: 0,
-            }}>
-              {user?.firstName ? user.firstName[0].toUpperCase() : 'U'}
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {user?.firstName} {user?.lastName}
-              </p>
-              <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {user?.email}
-              </p>
-            </div>
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              gap: '0.65rem',
+              padding: '0.35rem',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              backgroundColor: 'var(--bg-muted)',
+            }}
+            title={fullName}
+          >
+            <Avatar name={fullName} size={34} />
+            {!collapsed && (
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {fullName}
+                </p>
+                <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t(user?.role) || user?.email}
+                </p>
+              </div>
+            )}
           </div>
 
           <button
+            type="button"
             onClick={logout}
-            className="crm-btn crm-btn-secondary"
-            style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem', padding: '0.5rem' }}
+            className="crm-btn crm-btn-secondary crm-btn-sm"
+            style={{ width: '100%', justifyContent: 'center' }}
+            title={t('logout')}
           >
-            <LogOut size={16} />
-            <span>{t('logout')}</span>
+            <LogOut size={15} />
+            {!collapsed && <span>{t('logout')}</span>}
           </button>
         </div>
       </aside>

@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 
 // Components
 import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
+import { CommandPalette } from './components/common/CommandPalette';
 
 // Pages
 import { Login } from './pages/Auth/Login';
@@ -22,11 +24,16 @@ import { Profile } from './pages/Profile/Profile';
 
 function MainApp() {
   const { isAuthenticated, loading } = useAuth();
-  const { t } = useLanguage();
+  const { t, toggleLang } = useLanguage();
 
   const [activePage, setActivePage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [authView, setAuthView] = useState('login'); // 'login' | 'register' | 'invite'
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [authView, setAuthView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('token') || params.get('inviteToken') ? 'invite' : 'login';
+  });
 
   // Quick modals triggers across pages
   const [openNewClientModal, setOpenNewClientModal] = useState(false);
@@ -34,37 +41,45 @@ function MainApp() {
   const [openNewProjectModal, setOpenNewProjectModal] = useState(false);
   const [openNewFollowUpModal, setOpenNewFollowUpModal] = useState(false);
 
-  // Check URL query on initial mount for invitation tokens
+  // Global Ctrl+K / Cmd+K shortcut
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('token') || params.get('inviteToken')) {
-      setAuthView('invite');
-    }
-  }, []);
+    if (!isAuthenticated) return undefined;
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAuthenticated]);
 
   if (loading) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'var(--bg-app)',
-        color: 'var(--text-muted)',
-        fontFamily: 'var(--font-sans)',
-      }}>
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'var(--bg-app)',
+          color: 'var(--text-muted)',
+          fontFamily: 'var(--font-sans)',
+        }}
+      >
         <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            border: '3px solid var(--border-color)',
-            borderTopColor: 'var(--primary)',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-            margin: '0 auto 1rem auto',
-          }} />
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-          <p>{t('loading')}</p>
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              border: '3px solid var(--border-color)',
+              borderTopColor: 'var(--primary)',
+              borderRadius: '50%',
+              animation: 'spin 0.9s linear infinite',
+              margin: '0 auto 1rem auto',
+            }}
+          />
+          <p style={{ fontSize: '0.9rem' }}>{t('loading')}</p>
         </div>
       </div>
     );
@@ -86,6 +101,14 @@ function MainApp() {
     );
   }
 
+  const handleToggleSidebar = () => {
+    if (window.innerWidth < 1024) {
+      setSidebarOpen((prev) => !prev);
+    } else {
+      setSidebarCollapsed((prev) => !prev);
+    }
+  };
+
   // Authenticated CRM Layout
   return (
     <div className="app-container">
@@ -93,6 +116,8 @@ function MainApp() {
       <Sidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         activePage={activePage}
         setActivePage={setActivePage}
       />
@@ -100,9 +125,10 @@ function MainApp() {
       {/* Main Content Area */}
       <div className="main-content">
         <Navbar
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onToggleSidebar={handleToggleSidebar}
           activePage={activePage}
           setActivePage={setActivePage}
+          onOpenCommandPalette={() => setCmdOpen(true)}
         />
 
         <main style={{ flex: 1, overflowY: 'auto' }}>
@@ -163,6 +189,34 @@ function MainApp() {
           {activePage === 'profile' && <Profile />}
         </main>
       </div>
+
+      <CommandPalette
+        isOpen={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        onNavigate={(target) => {
+          if (target === '__toggle_lang__') {
+            toggleLang();
+          } else {
+            setActivePage(target);
+          }
+        }}
+        onOpenNewClient={() => {
+          setActivePage('clients');
+          setOpenNewClientModal(true);
+        }}
+        onOpenNewDeal={() => {
+          setActivePage('deals');
+          setOpenNewDealModal(true);
+        }}
+        onOpenNewProject={() => {
+          setActivePage('projects');
+          setOpenNewProjectModal(true);
+        }}
+        onOpenNewFollowUp={() => {
+          setActivePage('followups');
+          setOpenNewFollowUpModal(true);
+        }}
+      />
     </div>
   );
 }
@@ -171,9 +225,11 @@ export default function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <AuthProvider>
-          <MainApp />
-        </AuthProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <MainApp />
+          </AuthProvider>
+        </ToastProvider>
       </LanguageProvider>
     </ThemeProvider>
   );

@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { useTheme } from '../../context/ThemeContext';
-import { Layers, Moon, Sun, Globe, AlertCircle, CheckCircle } from 'lucide-react';
+import { Layers, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { AuthLayout } from './AuthLayout';
 
 export const RegisterAdmin = ({ onBackToLogin }) => {
   const { registerAdmin } = useAuth();
-  const { t, lang, toggleLang } = useLanguage();
-  const { isDark, toggleTheme } = useTheme();
+  const { t } = useLanguage();
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -16,6 +15,7 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
     password: '',
     phone: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -41,81 +41,57 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: '1.5rem',
-      backgroundColor: 'var(--bg-app)',
-    }}>
-      {/* Top Controls */}
-      <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', display: 'flex', gap: '0.5rem' }}>
-        <button
-          onClick={toggleLang}
-          className="crm-btn crm-btn-secondary"
-          style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
-        >
-          <Globe size={15} />
-          <span>{lang === 'en' ? '🇬🇧 EN' : '🇪🇹 አማ'}</span>
-        </button>
-        <button
-          onClick={toggleTheme}
-          className="crm-btn crm-btn-secondary"
-          style={{ padding: '0.4rem 0.6rem' }}
-        >
-          {isDark ? <Sun size={16} style={{ color: '#fbbf24' }} /> : <Moon size={16} style={{ color: '#4f46e5' }} />}
-        </button>
-      </div>
-
-      <div className="crm-card" style={{ width: '100%', maxWidth: '480px', padding: '2.25rem' }}>
-        <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-          <div style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '12px',
-            backgroundColor: 'var(--primary)',
-            color: '#ffffff',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 8px 16px rgba(79, 70, 229, 0.3)',
-            marginBottom: '0.75rem',
-          }}>
-            <Layers size={26} />
+    <AuthLayout>
+      <div className="crm-card" style={{ width: '100%', maxWidth: '470px', padding: '2.25rem', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1.65rem' }}>
+          <div
+            style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '14px',
+              background: 'var(--primary-gradient)',
+              color: '#ffffff',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 18px rgba(79, 70, 229, 0.3)',
+              marginBottom: '0.85rem',
+            }}
+          >
+            <Layers size={24} />
           </div>
-          <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 0.25rem 0' }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 0.25rem 0' }}>
             {t('setupAdminAccount')}
           </h2>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+          <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', margin: 0 }}>
             {t('registerSuperAdminPrompt')}
           </p>
         </div>
 
         {error && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.75rem 1rem',
-            borderRadius: '8px',
-            backgroundColor: 'var(--danger-bg)',
-            color: 'var(--danger-text)',
-            fontSize: '0.85rem',
-            marginBottom: '1.25rem',
-          }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.75rem 1rem',
+              borderRadius: '10px',
+              backgroundColor: 'var(--danger-bg)',
+              border: '1px solid var(--danger-border)',
+              color: 'var(--danger-text)',
+              fontSize: '0.84rem',
+              marginBottom: '1.25rem',
+            }}
+          >
             <AlertCircle size={18} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.95rem' }}>
+          <div className="crm-form-grid">
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem' }}>
-                {t('firstName')} *
-              </label>
+              <label className="crm-label">{t('firstName')} *</label>
               <input
                 type="text"
                 required
@@ -127,9 +103,7 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem' }}>
-                {t('lastName')} *
-              </label>
+              <label className="crm-label">{t('lastName')} *</label>
               <input
                 type="text"
                 required
@@ -143,9 +117,7 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem' }}>
-              {t('email')} *
-            </label>
+            <label className="crm-label">{t('email')} *</label>
             <input
               type="email"
               required
@@ -158,9 +130,7 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem' }}>
-              {t('phone')}
-            </label>
+            <label className="crm-label">{t('phone')}</label>
             <input
               type="tel"
               name="phone"
@@ -172,26 +142,44 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem' }}>
-              {t('password')} *
-            </label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="At least 6 characters"
-              className="crm-input"
-            />
+            <label className="crm-label">{t('password')} *</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                minLength={6}
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="At least 6 characters"
+                className="crm-input"
+                style={{ paddingRight: '2.5rem' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                style={{
+                  position: 'absolute',
+                  right: '0.65rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  border: 'none',
+                  background: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                }}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={loading}
             className="crm-btn crm-btn-primary"
-            style={{ width: '100%', marginTop: '0.5rem', padding: '0.75rem' }}
+            style={{ width: '100%', marginTop: '0.35rem', padding: '0.72rem' }}
           >
             {loading ? t('loading') : t('setupAdminAccount')}
           </button>
@@ -199,13 +187,14 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
 
         <div style={{ marginTop: '1.25rem', textAlign: 'center' }}>
           <button
+            type="button"
             onClick={onBackToLogin}
             style={{
               background: 'none',
               border: 'none',
               color: 'var(--primary)',
-              fontSize: '0.85rem',
-              fontWeight: 500,
+              fontSize: '0.84rem',
+              fontWeight: 600,
               cursor: 'pointer',
             }}
           >
@@ -213,6 +202,6 @@ export const RegisterAdmin = ({ onBackToLogin }) => {
           </button>
         </div>
       </div>
-    </div>
+    </AuthLayout>
   );
 };

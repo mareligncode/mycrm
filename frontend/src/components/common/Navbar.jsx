@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Menu,
   Moon,
@@ -8,18 +8,20 @@ import {
   Check,
   User as UserIcon,
   LogOut,
-  ExternalLink,
+  Search,
+  CheckCheck,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { notificationsApi } from '../../api/endpoints';
+import { Avatar } from './Avatar';
 
-export const Navbar = ({ onToggleSidebar, activePage, setActivePage }) => {
+export const Navbar = ({ onToggleSidebar, activePage, setActivePage, onOpenCommandPalette }) => {
   const { isDark, toggleTheme } = useTheme();
   const { lang, toggleLang, t, formatDateTime } = useLanguage();
   const { user, logout } = useAuth();
-  
+
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -28,26 +30,29 @@ export const Navbar = ({ onToggleSidebar, activePage, setActivePage }) => {
   const notifRef = useRef(null);
   const userMenuRef = useRef(null);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
       const res = await notificationsApi.getAll();
       if (res.success && res.data) {
         setNotifications(res.data);
-        const unread = res.data.filter((n) => !n.isRead).length;
-        setUnreadCount(unread);
+        setUnreadCount(res.data.filter((n) => !n.isRead).length);
       }
     } catch {
       // silently fallback
     }
-  };
-
-  useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 45000); // refresh every 45s
-    return () => clearInterval(interval);
   }, []);
 
-  // Close dropdowns on outside click
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchNotifications();
+    }, 0);
+    const interval = setInterval(fetchNotifications, 45000);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [fetchNotifications]);
+
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (notifRef.current && !notifRef.current.contains(e.target)) {
@@ -64,9 +69,7 @@ export const Navbar = ({ onToggleSidebar, activePage, setActivePage }) => {
   const handleMarkAsRead = async (id) => {
     try {
       await notificationsApi.markAsRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n._id === id ? { ...n, isRead: true } : n))
-      );
+      setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch {
       // fail silently
@@ -83,162 +86,155 @@ export const Navbar = ({ onToggleSidebar, activePage, setActivePage }) => {
     }
   };
 
+  const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'User';
+
   return (
-    <header style={{
-      height: '64px',
-      backgroundColor: 'var(--bg-surface)',
-      borderBottom: '1px solid var(--border-color)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '0 1.25rem',
-      position: 'sticky',
-      top: 0,
-      zIndex: 40,
-    }}>
-      {/* Left side: Hamburger & Title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+    <header className="crm-navbar">
+      {/* Left side: Mobile menu + Breadcrumb Title */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
         <button
+          type="button"
           onClick={onToggleSidebar}
-          className="crm-btn-ghost"
-          style={{ padding: '0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', display: 'flex' }}
+          className="crm-btn crm-btn-ghost crm-btn-icon"
           aria-label="Toggle navigation"
         >
-          <Menu size={22} />
+          <Menu size={20} />
         </button>
-        <span style={{
-          fontSize: '1.05rem',
-          fontWeight: 600,
-          color: 'var(--text-main)',
-          textTransform: 'capitalize',
-        }}>
-          {t(activePage)}
-        </span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'none' }} className="user-details-nav">
+            CRM /
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '1.05rem',
+              fontWeight: 700,
+              color: 'var(--text-main)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {t(activePage)}
+          </span>
+        </div>
       </div>
 
-      {/* Right side: Tools & Profile */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+      {/* Right side: Quick Search + Controls + Profile */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+        {/* Command Palette Trigger */}
+        <button
+          type="button"
+          onClick={onOpenCommandPalette}
+          className="crm-search-trigger"
+          title="Ctrl + K"
+        >
+          <Search size={15} />
+          <span className="crm-search-label">{t('quickJump')}</span>
+          <kbd className="crm-kbd">Ctrl K</kbd>
+        </button>
+
         {/* Language Switcher */}
         <button
+          type="button"
           onClick={toggleLang}
-          className="crm-btn-ghost"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.35rem',
-            padding: '0.45rem 0.75rem',
-            borderRadius: '8px',
-            border: '1px solid var(--border-color)',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
+          className="crm-btn crm-btn-secondary crm-btn-sm"
+          style={{ padding: '0.42rem 0.65rem' }}
           title={lang === 'en' ? 'Switch to Amharic (አማርኛ)' : 'Switch to English'}
         >
-          <Globe size={16} />
-          <span>{lang === 'en' ? '🇬🇧 EN' : '🇪🇹 አማ'}</span>
+          <Globe size={15} />
+          <span style={{ fontWeight: 600 }}>{lang === 'en' ? 'EN' : 'አማ'}</span>
         </button>
 
         {/* Theme Switcher */}
         <button
+          type="button"
           onClick={toggleTheme}
-          className="crm-btn-ghost"
-          style={{
-            padding: '0.45rem',
-            borderRadius: '8px',
-            border: '1px solid var(--border-color)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
+          className="crm-btn crm-btn-secondary crm-btn-icon"
           title={isDark ? t('lightMode') : t('darkMode')}
+          aria-label="Toggle theme"
         >
-          {isDark ? <Sun size={18} style={{ color: '#fbbf24' }} /> : <Moon size={18} style={{ color: '#4f46e5' }} />}
+          {isDark ? <Sun size={17} style={{ color: '#fbbf24' }} /> : <Moon size={17} style={{ color: 'var(--primary)' }} />}
         </button>
 
         {/* Notifications Dropdown */}
         <div style={{ position: 'relative' }} ref={notifRef}>
           <button
+            type="button"
             onClick={() => setShowNotifications(!showNotifications)}
-            className="crm-btn-ghost"
-            style={{
-              padding: '0.45rem',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              cursor: 'pointer',
-              position: 'relative',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            className="crm-btn crm-btn-secondary crm-btn-icon"
+            style={{ position: 'relative' }}
             aria-label="Notifications"
           >
-            <Bell size={18} />
+            <Bell size={17} />
             {unreadCount > 0 && (
-              <span style={{
-                position: 'absolute',
-                top: '-4px',
-                right: '-4px',
-                backgroundColor: 'var(--danger)',
-                color: '#fff',
-                fontSize: '0.65rem',
-                fontWeight: 700,
-                borderRadius: '9999px',
-                minWidth: '18px',
-                height: '18px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '0 4px',
-              }}>
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-5px',
+                  right: '-5px',
+                  backgroundColor: 'var(--danger)',
+                  color: '#fff',
+                  fontSize: '0.62rem',
+                  fontWeight: 700,
+                  borderRadius: '9999px',
+                  minWidth: '17px',
+                  height: '17px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 4px',
+                  border: '2px solid var(--bg-surface)',
+                }}
+              >
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
           </button>
 
           {showNotifications && (
-            <div style={{
-              position: 'absolute',
-              right: 0,
-              top: 'calc(100% + 8px)',
-              width: '320px',
-              maxWidth: '90vw',
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '12px',
-              boxShadow: 'var(--shadow-xl)',
-              zIndex: 50,
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '0.75rem 1rem',
-                borderBottom: '1px solid var(--border-color)',
-              }}>
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{t('notifications')}</span>
+            <div
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 'calc(100% + 8px)',
+                width: '340px',
+                maxWidth: '90vw',
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '14px',
+                boxShadow: 'var(--shadow-xl)',
+                zIndex: 50,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.85rem 1rem',
+                  borderBottom: '1px solid var(--border-color)',
+                }}
+              >
+                <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{t('notifications')}</span>
                 {unreadCount > 0 && (
                   <button
+                    type="button"
                     onClick={handleMarkAllRead}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--primary)',
-                      fontSize: '0.75rem',
-                      cursor: 'pointer',
-                      fontWeight: 500,
-                    }}
+                    className="crm-btn crm-btn-ghost crm-btn-sm"
+                    style={{ padding: '0.2rem 0.5rem', color: 'var(--primary)', fontSize: '0.75rem' }}
                   >
-                    {t('markAllRead')}
+                    <CheckCheck size={14} />
+                    <span>{t('markAllRead')}</span>
                   </button>
                 )}
               </div>
 
-              <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
+              <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                 {notifications.length === 0 ? (
-                  <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  <div style={{ padding: '2.25rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     {t('noNotifications')}
                   </div>
                 ) : (
@@ -246,18 +242,19 @@ export const Navbar = ({ onToggleSidebar, activePage, setActivePage }) => {
                     <div
                       key={n._id}
                       style={{
-                        padding: '0.75rem 1rem',
-                        borderBottom: '1px solid var(--border-color)',
-                        backgroundColor: n.isRead ? 'transparent' : 'var(--bg-muted)',
+                        padding: '0.8rem 1rem',
+                        borderBottom: '1px solid var(--border-subtle)',
+                        backgroundColor: n.isRead ? 'transparent' : 'var(--primary-light)',
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '0.25rem',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <strong style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>{n.title}</strong>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <strong style={{ fontSize: '0.81rem', color: 'var(--text-main)' }}>{n.title}</strong>
                         {!n.isRead && (
                           <button
+                            type="button"
                             onClick={() => handleMarkAsRead(n._id)}
                             title="Mark as read"
                             style={{
@@ -266,16 +263,17 @@ export const Navbar = ({ onToggleSidebar, activePage, setActivePage }) => {
                               color: 'var(--primary)',
                               cursor: 'pointer',
                               display: 'flex',
+                              padding: '2px',
                             }}
                           >
                             <Check size={14} />
                           </button>
                         )}
                       </div>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
+                      <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
                         {n.message}
                       </p>
-                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
                         {formatDateTime(n.createdAt)}
                       </span>
                     </div>
@@ -289,107 +287,77 @@ export const Navbar = ({ onToggleSidebar, activePage, setActivePage }) => {
         {/* User Profile Menu */}
         <div style={{ position: 'relative' }} ref={userMenuRef}>
           <button
+            type="button"
             onClick={() => setShowUserMenu(!showUserMenu)}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
               background: 'none',
-              border: 'none',
+              border: '1px solid transparent',
+              borderRadius: '10px',
               cursor: 'pointer',
-              padding: '0.25rem',
+              padding: '0.2rem 0.35rem',
             }}
           >
-            <div style={{
-              width: '34px',
-              height: '34px',
-              borderRadius: '9999px',
-              backgroundColor: 'var(--primary-light)',
-              color: 'var(--primary-text)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 700,
-              fontSize: '0.85rem',
-            }}>
-              {user?.firstName ? user.firstName[0].toUpperCase() : 'U'}
-            </div>
+            <Avatar name={fullName} size={34} />
             <div style={{ display: 'none', flexDirection: 'column', textAlign: 'left', lineHeight: 1.2 }} className="user-details-nav">
               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                {user?.firstName} {user?.lastName}
+                {fullName}
               </span>
-              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
                 {t(user?.role)}
               </span>
             </div>
           </button>
 
           {showUserMenu && (
-            <div style={{
-              position: 'absolute',
-              right: 0,
-              top: 'calc(100% + 8px)',
-              width: '200px',
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '12px',
-              boxShadow: 'var(--shadow-xl)',
-              zIndex: 50,
-              padding: '0.5rem',
-            }}>
-              <div style={{ padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border-color)', marginBottom: '0.35rem' }}>
+            <div
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 'calc(100% + 8px)',
+                width: '220px',
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '14px',
+                boxShadow: 'var(--shadow-xl)',
+                zIndex: 50,
+                padding: '0.5rem',
+              }}
+            >
+              <div style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', marginBottom: '0.35rem' }}>
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  {user?.firstName} {user?.lastName}
+                  {fullName}
                 </p>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <p style={{ margin: 0, fontSize: '0.73rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {user?.email}
                 </p>
               </div>
 
               <button
+                type="button"
                 onClick={() => {
                   setActivePage('profile');
                   setShowUserMenu(false);
                 }}
-                className="crm-btn-ghost"
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.8rem',
-                  borderRadius: '6px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  border: 'none',
-                }}
+                className="crm-sidebar-nav-btn"
+                style={{ padding: '0.5rem 0.75rem', fontSize: '0.82rem' }}
               >
-                <UserIcon size={16} />
+                <UserIcon size={15} />
                 <span>{t('profile')}</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   logout();
                   setShowUserMenu(false);
                 }}
-                className="crm-btn-ghost"
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.8rem',
-                  color: 'var(--danger)',
-                  borderRadius: '6px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  border: 'none',
-                }}
+                className="crm-sidebar-nav-btn"
+                style={{ padding: '0.5rem 0.75rem', fontSize: '0.82rem', color: 'var(--danger)' }}
               >
-                <LogOut size={16} />
+                <LogOut size={15} />
                 <span>{t('logout')}</span>
               </button>
             </div>
