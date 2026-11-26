@@ -1,7 +1,29 @@
 import Project from "../models/Project.js";
+import { escapeRegex, parsePagination } from "../middleware/validate.js";
 import { logActivity } from "../utils/activityLogger.js";
 import { broadcastNotification, createNotification } from "../utils/notificationService.js";
 import { sendTelegramMessage, shouldDispatchTelegramEvent } from "../utils/telegramService.js";
+
+const normalizeProjectPayload = (body = {}) => {
+  const normalized = { ...body };
+
+  if (normalized.budget !== undefined && (typeof normalized.budget !== "object" || normalized.budget === null)) {
+    normalized.budget = { amount: Number(normalized.budget) || 0 };
+  }
+
+  if (Array.isArray(normalized.teamMembers)) {
+    normalized.teamMembers = normalized.teamMembers
+      .map((member) => {
+        if (!member) return null;
+        if (typeof member === "string") return { user: member };
+        if (member.user) return member;
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  return normalized;
+};
 
 // @desc    Get all projects with filters and pagination
 // @route   GET /api/projects
@@ -30,16 +52,15 @@ export const getProjects = async (req, res, next) => {
     if (projectManager) query.projectManager = projectManager;
 
     if (search) {
+      const safeSearch = new RegExp(escapeRegex(search), "i");
       query.$or = [
-        { projectName: new RegExp(search, "i") },
-        { projectCode: new RegExp(search, "i") },
-        { description: new RegExp(search, "i") },
+        { projectName: safeSearch },
+        { projectCode: safeSearch },
+        { description: safeSearch },
       ];
     }
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const skip = (pageNum - 1) * limitNum;
+    const { page: pageNum, limit: limitNum, skip } = parsePagination({ page, limit });
 
     const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
@@ -93,7 +114,7 @@ export const getProjectById = async (req, res, next) => {
 export const createProject = async (req, res, next) => {
   try {
     const projectData = {
-      ...req.body,
+      ...normalizeProjectPayload(req.body),
       createdBy: req.user._id,
     };
 
@@ -157,7 +178,7 @@ export const updateProject = async (req, res, next) => {
     const previousStatus = project.status;
     const beforeState = project.toObject();
 
-    Object.assign(project, req.body);
+    Object.assign(project, normalizeProjectPayload(req.body));
 
     if (req.body.status === "completed" && previousStatus !== "completed") {
       project.completedAt = new Date();
@@ -221,19 +242,26 @@ export const deleteProject = async (req, res, next) => {
 // @access  Private
 export const addTeamMember = async (req, res, next) => {
   try {
-    const { user, responsibility } = req.body;
+    const user = req.body.user || req.body.userId;
+    const { responsibility } = req.body;
+    if (!user) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
     const project = await Project.findById(req.params.id);
     if (!project) {
       return res.status(404).json({ success: false, message: "Project not found" });
     }
 
-    const alreadyMember = project.teamMembers.some((m) => m.user.toString() === user);
+    const alreadyMember = project.teamMembers.some(
+      (m) => m.user && m.user.toString() === String(user)
+    );
     if (alreadyMember) {
       return res.status(400).json({ success: false, message: "User already in team members" });
     }
 
     project.teamMembers.push({ user, responsibility, assignedAt: new Date() });
     await project.save();
+    await project.populate("teamMembers.user", "firstName lastName email avatar role");
 
     await createNotification({
       recipient: user,
@@ -262,9 +290,10 @@ export const removeTeamMember = async (req, res, next) => {
     }
 
     project.teamMembers = project.teamMembers.filter(
-      (m) => m.user.toString() !== req.params.userId
+      (m) => m.user && m.user.toString() !== req.params.userId
     );
     await project.save();
+    await project.populate("teamMembers.user", "firstName lastName email avatar role");
 
     res.status(200).json({ success: true, data: project.teamMembers });
   } catch (error) {

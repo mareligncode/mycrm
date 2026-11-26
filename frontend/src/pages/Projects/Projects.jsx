@@ -39,6 +39,36 @@ const INITIAL_PROJECT_FORM = {
   teamMembers: [],
 };
 
+const getBudgetAmount = (budget) => {
+  if (typeof budget === 'number') return budget;
+  return Number(budget?.amount) || 0;
+};
+
+const getTeamMemberId = (member) => {
+  if (!member) return '';
+  if (typeof member === 'string') return member;
+  return member.user?._id || member.user || member._id || '';
+};
+
+const getTeamMemberUsers = (teamMembers = []) =>
+  teamMembers
+    .map((m) => (m?.user && typeof m.user === 'object' ? m.user : m))
+    .filter(Boolean);
+
+const buildProjectPayload = (formData) => {
+  const payload = {
+    ...formData,
+    projectName: formData.projectName.trim(),
+    projectCode: formData.projectCode.trim().toUpperCase(),
+    budget: { amount: formData.budget ? Number(formData.budget) : 0 },
+    progress: Number(formData.progress) || 0,
+    teamMembers: (formData.teamMembers || []).filter(Boolean).map((userId) => ({ user: userId })),
+  };
+  if (!payload.startDate) delete payload.startDate;
+  if (!payload.deadline) delete payload.deadline;
+  return payload;
+};
+
 export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
   const { t, formatDate } = useLanguage();
   const { hasRole } = useAuth();
@@ -114,16 +144,12 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
+    if (!formData.projectName.trim() || !formData.projectCode.trim() || !formData.client) {
+      toast.error('Project name, project code, and client are required');
+      return;
+    }
     try {
-      const payload = {
-        ...formData,
-        budget: formData.budget ? Number(formData.budget) : 0,
-        progress: Number(formData.progress),
-      };
-      if (!payload.client) delete payload.client;
-      if (!payload.startDate) delete payload.startDate;
-      if (!payload.deadline) delete payload.deadline;
-
+      const payload = buildProjectPayload(formData);
       const res = await projectsApi.create(payload);
       if (res.success) {
         setIsCreateModalOpen(false);
@@ -138,6 +164,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
 
   const handleOpenEdit = (project) => {
     setSelectedProject(project);
+    const budgetAmt = getBudgetAmount(project.budget);
     setFormData({
       projectName: project.projectName || '',
       projectCode: project.projectCode || '',
@@ -145,34 +172,33 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
       client: project.client?._id || project.client || '',
       status: project.status || 'planning',
       priority: project.priority || 'medium',
-      budget: project.budget || '',
+      budget: budgetAmt > 0 ? budgetAmt : '',
       progress: project.progress || 0,
       stage: project.stage || '',
       startDate: project.startDate ? project.startDate.split('T')[0] : '',
       deadline: project.deadline ? project.deadline.split('T')[0] : '',
-      teamMembers: project.teamMembers ? project.teamMembers.map((m) => m._id || m) : [],
+      teamMembers: project.teamMembers
+        ? project.teamMembers.map((m) => getTeamMemberId(m)).filter(Boolean)
+        : [],
     });
     setIsEditModalOpen(true);
   };
 
   const handleUpdateProject = async (e) => {
     e.preventDefault();
+    if (!formData.projectName.trim() || !formData.projectCode.trim() || !formData.client) {
+      toast.error('Project name, project code, and client are required');
+      return;
+    }
     try {
-      const payload = {
-        ...formData,
-        budget: formData.budget ? Number(formData.budget) : 0,
-        progress: Number(formData.progress),
-      };
-      if (!payload.client) delete payload.client;
-      if (!payload.startDate) delete payload.startDate;
-      if (!payload.deadline) delete payload.deadline;
-
+      const payload = buildProjectPayload(formData);
       const res = await projectsApi.update(selectedProject._id, payload);
       if (res.success) {
         setIsEditModalOpen(false);
         toast.success(t('savedSuccessfully'));
         if (isDetailOpen && res.data) {
-          setSelectedProject(res.data);
+          const detailRes = await projectsApi.getById(selectedProject._id).catch(() => null);
+          setSelectedProject(detailRes?.success ? detailRes.data : res.data);
         }
         fetchProjects();
       }
@@ -210,8 +236,13 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
     if (!selectedProject || !memberToAdd) return;
     try {
       const res = await projectsApi.addMember(selectedProject._id, memberToAdd);
-      if (res.success && res.data) {
-        setSelectedProject(res.data);
+      if (res.success) {
+        const detailRes = await projectsApi.getById(selectedProject._id).catch(() => null);
+        if (detailRes?.success && detailRes.data) {
+          setSelectedProject(detailRes.data);
+        } else if (Array.isArray(res.data)) {
+          setSelectedProject((prev) => ({ ...prev, teamMembers: res.data }));
+        }
         setMemberToAdd('');
         toast.success(t('savedSuccessfully'));
         fetchProjects();
@@ -225,8 +256,13 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
     if (!selectedProject) return;
     try {
       const res = await projectsApi.removeMember(selectedProject._id, userId);
-      if (res.success && res.data) {
-        setSelectedProject(res.data);
+      if (res.success) {
+        const detailRes = await projectsApi.getById(selectedProject._id).catch(() => null);
+        if (detailRes?.success && detailRes.data) {
+          setSelectedProject(detailRes.data);
+        } else if (Array.isArray(res.data)) {
+          setSelectedProject((prev) => ({ ...prev, teamMembers: res.data }));
+        }
         toast.success(t('deletedSuccessfully'));
         fetchProjects();
       }
@@ -236,7 +272,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
   };
 
   const availableMembersToAdd = usersList.filter(
-    (u) => !selectedProject?.teamMembers?.some((m) => (m._id || m) === u._id)
+    (u) => !selectedProject?.teamMembers?.some((m) => getTeamMemberId(m) === u._id)
   );
 
   return (
@@ -402,7 +438,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
                 }}
               >
                 <span className="tabular-nums" style={{ fontWeight: 700, color: 'var(--text-main)' }}>
-                  ${(p.budget || 0).toLocaleString()}
+                  ${getBudgetAmount(p.budget).toLocaleString()}
                 </span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: 'var(--text-muted)' }}>
                   <Calendar size={12} />
@@ -421,7 +457,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <AvatarStack members={p.teamMembers || []} max={4} size={26} />
+                <AvatarStack members={getTeamMemberUsers(p.teamMembers || [])} max={4} size={26} />
                 <div style={{ display: 'flex', gap: '0.2rem' }}>
                   <button type="button" onClick={() => handleOpenEdit(p)} className="crm-btn crm-btn-ghost crm-btn-icon" title={t('edit')}>
                     <Edit size={15} />
@@ -505,7 +541,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
                   </td>
                   <td>
                     <span className="tabular-nums" style={{ fontWeight: 600, fontSize: '0.86rem' }}>
-                      ${(p.budget || 0).toLocaleString()}
+                      ${getBudgetAmount(p.budget).toLocaleString()}
                     </span>
                   </td>
                   <td>
@@ -580,9 +616,10 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
             </div>
 
             <div>
-              <label className="crm-label">{t('projectCode')}</label>
+              <label className="crm-label">{t('projectCode')} *</label>
               <input
                 type="text"
+                required
                 value={formData.projectCode}
                 onChange={(e) => setFormData({ ...formData, projectCode: e.target.value })}
                 placeholder="CRM-2026-01"
@@ -591,8 +628,9 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
             </div>
 
             <div>
-              <label className="crm-label">{t('client')}</label>
+              <label className="crm-label">{t('client')} *</label>
               <select
+                required
                 value={formData.client}
                 onChange={(e) => setFormData({ ...formData, client: e.target.value })}
                 className="crm-select"
@@ -831,7 +869,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
               </div>
               <div>
                 <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{t('budget')}</span>
-                <p className="tabular-nums" style={{ margin: '0.15rem 0 0 0', fontWeight: 700 }}>${(selectedProject.budget || 0).toLocaleString()}</p>
+                <p className="tabular-nums" style={{ margin: '0.15rem 0 0 0', fontWeight: 700 }}>${getBudgetAmount(selectedProject.budget).toLocaleString()}</p>
               </div>
               <div>
                 <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{t('startDate')}</span>
@@ -893,10 +931,14 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                   {selectedProject.teamMembers.map((m) => {
-                    const memberName = m.firstName ? `${m.firstName} ${m.lastName}` : 'Member';
+                    const userObj = m?.user && typeof m.user === 'object' ? m.user : m;
+                    const memberId = getTeamMemberId(m);
+                    const memberName = userObj?.firstName
+                      ? `${userObj.firstName} ${userObj.lastName || ''}`.trim()
+                      : 'Member';
                     return (
                       <div
-                        key={m._id || m}
+                        key={memberId || m._id}
                         style={{
                           padding: '0.38rem 0.65rem 0.38rem 0.45rem',
                           borderRadius: '9999px',
@@ -912,7 +954,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
                         <span style={{ fontWeight: 500 }}>{memberName}</span>
                         <button
                           type="button"
-                          onClick={() => handleQuickRemoveMember(m._id || m)}
+                          onClick={() => handleQuickRemoveMember(memberId)}
                           style={{
                             border: 'none',
                             background: 'none',

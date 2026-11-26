@@ -11,6 +11,7 @@ import {
 } from "../controllers/projectController.js";
 import { protect } from "../middleware/auth.js";
 import { authorize } from "../middleware/roles.js";
+import { validateObjectIdParam } from "../middleware/validate.js";
 
 const router = express.Router();
 
@@ -21,12 +22,13 @@ router.route("/")
   .post(createProject);
 
 router.route("/:id")
+  .all(validateObjectIdParam("id"))
   .get(getProjectById)
   .put(updateProject)
   .delete(authorize("super_admin", "admin", "manager"), deleteProject);
 
-router.post("/:id/members", addTeamMember);
-router.delete("/:id/members/:userId", removeTeamMember);
-router.post("/:id/attachments", addAttachment);
+router.post("/:id/members", validateObjectIdParam("id"), addTeamMember);
+router.delete("/:id/members/:userId", validateObjectIdParam("id"), validateObjectIdParam("userId"), removeTeamMember);
+router.post("/:id/attachments", validateObjectIdParam("id"), addAttachment);
 
 export default router;
