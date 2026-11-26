@@ -28,7 +28,7 @@ const INITIAL_PROJECT_FORM = {
   projectName: '',
   projectCode: '',
   description: '',
-  client: '',
+  clients: [],
   status: 'planning',
   priority: 'medium',
   budget: '',
@@ -38,6 +38,27 @@ const INITIAL_PROJECT_FORM = {
   deadline: '',
   teamMembers: [],
 };
+
+const getProjectClients = (project) => {
+  if (!project) return [];
+  const rawList = Array.isArray(project.clients) && project.clients.length > 0
+    ? project.clients
+    : project.client
+    ? [project.client]
+    : [];
+  const seen = new Set();
+  return rawList.filter((c) => {
+    const id = typeof c === 'object' ? c?._id : c;
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
+const getProjectClientNames = (project) =>
+  getProjectClients(project)
+    .map((c) => (typeof c === 'object' ? c.clientName : ''))
+    .filter(Boolean);
 
 const getBudgetAmount = (budget) => {
   if (typeof budget === 'number') return budget;
@@ -56,10 +77,13 @@ const getTeamMemberUsers = (teamMembers = []) =>
     .filter(Boolean);
 
 const buildProjectPayload = (formData) => {
+  const selectedClients = (formData.clients || []).filter(Boolean);
   const payload = {
     ...formData,
     projectName: formData.projectName.trim(),
     projectCode: formData.projectCode.trim().toUpperCase(),
+    client: selectedClients[0] || '',
+    clients: selectedClients,
     budget: { amount: formData.budget ? Number(formData.budget) : 0 },
     progress: Number(formData.progress) || 0,
     teamMembers: (formData.teamMembers || []).filter(Boolean).map((userId) => ({ user: userId })),
@@ -144,8 +168,8 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
-    if (!formData.projectName.trim() || !formData.projectCode.trim() || !formData.client) {
-      toast.error('Project name, project code, and client are required');
+    if (!formData.projectName.trim() || !formData.projectCode.trim() || !formData.clients?.length) {
+      toast.error('Project name, project code, and at least one client are required');
       return;
     }
     try {
@@ -165,11 +189,14 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
   const handleOpenEdit = (project) => {
     setSelectedProject(project);
     const budgetAmt = getBudgetAmount(project.budget);
+    const assignedClientIds = getProjectClients(project)
+      .map((c) => (typeof c === 'object' ? c._id : c))
+      .filter(Boolean);
     setFormData({
       projectName: project.projectName || '',
       projectCode: project.projectCode || '',
       description: project.description || '',
-      client: project.client?._id || project.client || '',
+      clients: assignedClientIds,
       status: project.status || 'planning',
       priority: project.priority || 'medium',
       budget: budgetAmt > 0 ? budgetAmt : '',
@@ -186,8 +213,8 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
 
   const handleUpdateProject = async (e) => {
     e.preventDefault();
-    if (!formData.projectName.trim() || !formData.projectCode.trim() || !formData.client) {
-      toast.error('Project name, project code, and client are required');
+    if (!formData.projectName.trim() || !formData.projectCode.trim() || !formData.clients?.length) {
+      toast.error('Project name, project code, and at least one client are required');
       return;
     }
     try {
@@ -218,6 +245,19 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
     } catch (err) {
       toast.error(err.message || 'Error deleting project');
     }
+  };
+
+  const handleToggleClient = (clientId) => {
+    setFormData((prev) => {
+      const current = prev.clients || [];
+      const exists = current.includes(clientId);
+      return {
+        ...prev,
+        clients: exists
+          ? current.filter((id) => id !== clientId)
+          : [...current, clientId],
+      };
+    });
   };
 
   const handleToggleMember = (userId) => {
@@ -396,9 +436,9 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
                   <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
                     {p.projectName}
                   </h3>
-                  {p.client && (
+                  {getProjectClientNames(p).length > 0 && (
                     <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      {p.client.clientName}
+                      {getProjectClientNames(p).join(', ')}
                     </p>
                   )}
                 </div>
@@ -515,8 +555,14 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
                     </div>
                   </td>
                   <td>
-                    {p.client ? (
-                      <span style={{ fontSize: '0.82rem', fontWeight: 500 }}>{p.client.clientName}</span>
+                    {getProjectClientNames(p).length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                        {getProjectClientNames(p).map((name) => (
+                          <span key={name} className="crm-badge crm-badge-neutral" style={{ fontSize: '0.74rem' }}>
+                            {name}
+                          </span>
+                        ))}
+                      </div>
                     ) : (
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
                     )}
@@ -627,21 +673,53 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
               />
             </div>
 
-            <div>
-              <label className="crm-label">{t('client')} *</label>
-              <select
-                required
-                value={formData.client}
-                onChange={(e) => setFormData({ ...formData, client: e.target.value })}
-                className="crm-select"
+            <div className="crm-col-span-2">
+              <label className="crm-label">
+                {t('client')} * ({formData.clients?.length || 0} {t('selected') || 'selected'})
+              </label>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                  gap: '0.5rem',
+                  maxHeight: '150px',
+                  overflowY: 'auto',
+                  padding: '0.65rem',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--bg-muted)',
+                }}
               >
-                <option value="">-- {t('selectClient')} --</option>
-                {clientsList.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.clientName} {c.companyName ? `(${c.companyName})` : ''}
-                  </option>
-                ))}
-              </select>
+                {clientsList.length === 0 ? (
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('noData')}</span>
+                ) : (
+                  clientsList.map((c) => {
+                    const isChecked = (formData.clients || []).includes(c._id);
+                    return (
+                      <label
+                        key={c._id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.45rem',
+                          fontSize: '0.8rem',
+                          color: 'var(--text-main)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleClient(c._id)}
+                        />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.clientName} {c.companyName ? `(${c.companyName})` : ''}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
             </div>
 
             <div>
@@ -804,7 +882,7 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
         isOpen={isDetailOpen && !!selectedProject}
         onClose={() => setIsDetailOpen(false)}
         title={selectedProject?.projectName || ''}
-        subtitle={selectedProject?.client?.clientName || ''}
+        subtitle={getProjectClientNames(selectedProject).join(', ')}
         maxWidth="620px"
         headerActions={
           selectedProject && (
@@ -865,7 +943,17 @@ export const Projects = ({ isOpenNewModal, onCloseNewModal }) => {
             >
               <div>
                 <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{t('client')}</span>
-                <p style={{ margin: '0.15rem 0 0 0', fontWeight: 600 }}>{selectedProject.client?.clientName || '-'}</p>
+                {getProjectClientNames(selectedProject).length > 0 ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.2rem' }}>
+                    {getProjectClients(selectedProject).map((c) => (
+                      <span key={c._id || c} className="crm-badge crm-badge-info" style={{ fontSize: '0.75rem' }}>
+                        {c.clientName || '-'}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ margin: '0.15rem 0 0 0', fontWeight: 600 }}>-</p>
+                )}
               </div>
               <div>
                 <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{t('budget')}</span>

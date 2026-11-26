@@ -124,9 +124,9 @@ export const getClientById = async (req, res, next) => {
     }
 
     const [projects, followUps, deals] = await Promise.all([
-      Project.find({ client: client._id })
+      Project.find({ $or: [{ client: client._id }, { clients: client._id }] })
         .populate("projectManager", "firstName lastName")
-        .select("projectName projectCode status priority progress deadline budget"),
+        .select("projectName projectCode status priority progress deadline budget client clients"),
       FollowUp.find({ client: client._id })
         .populate("assignedTo", "firstName lastName")
         .sort({ scheduledAt: -1 })

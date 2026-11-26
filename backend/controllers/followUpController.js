@@ -1,5 +1,7 @@
 import FollowUp from "../models/FollowUp.js";
 import Client from "../models/Client.js";
+import Project from "../models/Project.js";
+import { escapeRegex } from "../middleware/validate.js";
 import { logActivity } from "../utils/activityLogger.js";
 import { createNotification } from "../utils/notificationService.js";
 import { sendTelegramMessage, shouldDispatchTelegramEvent } from "../utils/telegramService.js";
@@ -67,8 +69,8 @@ export const getFollowUps = async (req, res, next) => {
 
     const total = await FollowUp.countDocuments(query);
     const rawFollowUps = await FollowUp.find(query)
-      .populate("client", "clientName companyName email phone")
-      .populate("project", "projectName projectCode")
+      .populate("client", "clientName companyName email phone status")
+      .populate("project", "projectName projectCode status progress deadline")
       .populate("assignedTo", "firstName lastName email avatar")
       .populate("createdBy", "firstName lastName")
       .sort(sort)
@@ -183,6 +185,148 @@ export const getFollowUpAnalytics = async (req, res, next) => {
         escalations: escalationsMap,
         outcomes: outcomesMap,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get client-by-client and project-by-project follow-up pipeline
+// @route   GET /api/followups/pipeline
+// @access  Private
+export const getClientProjectPipeline = async (req, res, next) => {
+  try {
+    const { client, project, status, type, priority, level, escalationTier, search } = req.query;
+
+    const clientQuery = { isArchived: false };
+    if (client) clientQuery._id = client;
+    if (search) {
+      const safeSearch = new RegExp(escapeRegex(search), "i");
+      clientQuery.$or = [{ clientName: safeSearch }, { companyName: safeSearch }, { email: safeSearch }];
+    }
+
+    const clients = await Client.find(clientQuery)
+      .select("clientName companyName status email phone lastContactedAt nextFollowUpAt")
+      .sort({ updatedAt: -1 })
+      .limit(100);
+
+    const clientIds = clients.map((c) => c._id);
+
+    const projectQuery = {
+      $or: [{ client: { $in: clientIds } }, { clients: { $in: clientIds } }],
+    };
+    if (project) projectQuery._id = project;
+
+    const followUpQuery = { client: { $in: clientIds } };
+    if (project) followUpQuery.project = project;
+    if (status) followUpQuery.status = status;
+    if (type) followUpQuery.type = type;
+    if (priority) followUpQuery.priority = priority;
+    if (level) followUpQuery.level = parseInt(level, 10);
+    if (escalationTier) followUpQuery.escalationTier = escalationTier;
+
+    const [projects, rawFollowUps] = await Promise.all([
+      Project.find(projectQuery)
+        .select("projectName projectCode status priority progress deadline client clients")
+        .sort({ createdAt: -1 }),
+      FollowUp.find(followUpQuery)
+        .populate("client", "clientName companyName status")
+        .populate("project", "projectName projectCode status progress")
+        .populate("assignedTo", "firstName lastName email avatar")
+        .sort({ scheduledAt: 1 }),
+    ]);
+
+    const enrichedFollowUps = rawFollowUps.map((item) => {
+      const obj = item.toObject();
+      obj.slaStatus = calculateSlaStatus(item.scheduledAt, item.status);
+      return obj;
+    });
+
+    const projectsByClient = new Map();
+    for (const proj of projects) {
+      const projClientIds = new Set();
+      if (proj.client) projClientIds.add(String(proj.client));
+      if (Array.isArray(proj.clients)) {
+        proj.clients.forEach((cid) => projClientIds.add(String(cid)));
+      }
+      for (const cid of projClientIds) {
+        if (!projectsByClient.has(cid)) projectsByClient.set(cid, []);
+        projectsByClient.get(cid).push(proj);
+      }
+    }
+
+    const followUpsByClient = new Map();
+    for (const fu of enrichedFollowUps) {
+      const cid = fu.client?._id ? String(fu.client._id) : String(fu.client || "");
+      if (!cid) continue;
+      if (!followUpsByClient.has(cid)) followUpsByClient.set(cid, []);
+      followUpsByClient.get(cid).push(fu);
+    }
+
+    const pipeline = clients.map((c) => {
+      const cid = String(c._id);
+      const clientProjects = projectsByClient.get(cid) || [];
+      const clientFollowUps = followUpsByClient.get(cid) || [];
+
+      const projectGroups = clientProjects.map((proj) => {
+        const pid = String(proj._id);
+        const projFollowUps = clientFollowUps.filter(
+          (f) => f.project && String(f.project._id || f.project) === pid
+        );
+        const pendingCount = projFollowUps.filter(
+          (f) => f.status === "pending" || f.status === "in_progress"
+        ).length;
+        const overdueCount = projFollowUps.filter(
+          (f) => f.slaStatus === "overdue" || f.slaStatus === "breached"
+        ).length;
+        const completedCount = projFollowUps.filter((f) => f.status === "completed").length;
+
+        return {
+          project: proj,
+          followUps: projFollowUps,
+          stats: {
+            total: projFollowUps.length,
+            pendingCount,
+            overdueCount,
+            completedCount,
+          },
+        };
+      });
+
+      const generalFollowUps = clientFollowUps.filter((f) => !f.project);
+
+      const totalFollowUps = clientFollowUps.length;
+      const pendingCount = clientFollowUps.filter(
+        (f) => f.status === "pending" || f.status === "in_progress"
+      ).length;
+      const overdueCount = clientFollowUps.filter(
+        (f) => f.slaStatus === "overdue" || f.slaStatus === "breached"
+      ).length;
+      const completedCount = clientFollowUps.filter((f) => f.status === "completed").length;
+      const currentMaxLevel = clientFollowUps.reduce(
+        (max, f) => Math.max(max, f.level || 1),
+        0
+      );
+
+      return {
+        client: c,
+        projects: projectGroups,
+        generalFollowUps,
+        stats: {
+          totalFollowUps,
+          pendingCount,
+          overdueCount,
+          completedCount,
+          projectCount: clientProjects.length,
+          currentMaxLevel,
+        },
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: pipeline.length,
+      data: pipeline,
     });
   } catch (error) {
     next(error);

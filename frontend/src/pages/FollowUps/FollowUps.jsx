@@ -21,11 +21,15 @@ import {
   User,
   Briefcase,
   DollarSign,
+  GitBranch,
+  Building2,
+  ChevronRight,
 } from 'lucide-react';
 import { followUpsApi, clientsApi, projectsApi, usersApi } from '../../api/endpoints';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import {
+  StatusBadge,
   PriorityBadge,
   CadenceLevelBadge,
   EscalationBadge,
@@ -64,11 +68,28 @@ const INITIAL_OUTCOME_FORM = {
   nextEscalationTier: 'standard',
 };
 
+const getProjectClientIds = (project) => {
+  if (!project) return [];
+  const ids = new Set();
+  if (project.client) {
+    ids.add(typeof project.client === 'object' ? project.client._id : project.client);
+  }
+  if (Array.isArray(project.clients)) {
+    project.clients.forEach((c) => {
+      const id = typeof c === 'object' ? c?._id : c;
+      if (id) ids.add(id);
+    });
+  }
+  return [...ids].filter(Boolean);
+};
+
 export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
-  const { t, formatDateTime } = useLanguage();
+  const { t, formatDate, formatDateTime } = useLanguage();
   const toast = useToast();
 
   const [followUps, setFollowUps] = useState([]);
+  const [pipelineData, setPipelineData] = useState([]);
+  const [selectedPipelineClientId, setSelectedPipelineClientId] = useState('');
   const [analytics, setAnalytics] = useState(null);
   const [clientsList, setClientsList] = useState([]);
   const [projectsList, setProjectsList] = useState([]);
@@ -77,6 +98,8 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
 
   const [viewMode, setViewMode] = useState('list');
   const [activeTab, setActiveTab] = useState('all');
+  const [clientFilter, setClientFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
@@ -105,7 +128,9 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
   const fetchFollowUps = useCallback(async () => {
     try {
       setLoading(true);
-      const params = {};
+      const params = { limit: 100 };
+      if (clientFilter) params.client = clientFilter;
+      if (projectFilter) params.project = projectFilter;
       if (typeFilter) params.type = typeFilter;
       if (priorityFilter) params.priority = priorityFilter;
       if (levelFilter) params.level = levelFilter;
@@ -129,15 +154,28 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
         params.status = 'pending';
       }
 
-      const res = await followUpsApi.getAll(params);
+      const [res, pipelineRes] = await Promise.all([
+        followUpsApi.getAll(params),
+        followUpsApi.getPipeline({
+          ...(clientFilter ? { client: clientFilter } : {}),
+          ...(projectFilter ? { project: projectFilter } : {}),
+          ...(typeFilter ? { type: typeFilter } : {}),
+          ...(priorityFilter ? { priority: priorityFilter } : {}),
+          ...(levelFilter ? { level: levelFilter } : {}),
+          ...(escalationFilter ? { escalationTier: escalationFilter } : {}),
+          ...(activeTab === 'completed' ? { status: 'completed' } : {}),
+        }).catch(() => null),
+      ]);
+
       if (res.success) setFollowUps(res.data || []);
+      if (pipelineRes?.success) setPipelineData(pipelineRes.data || []);
     } catch (err) {
       console.error('Error fetching follow-ups:', err);
       toast.error(err.message || 'Failed to load follow-ups');
     } finally {
       setLoading(false);
     }
-  }, [activeTab, typeFilter, priorityFilter, levelFilter, escalationFilter, toast]);
+  }, [activeTab, clientFilter, projectFilter, typeFilter, priorityFilter, levelFilter, escalationFilter, toast]);
 
   const fetchDependencies = useCallback(async () => {
     try {
@@ -169,6 +207,15 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
       setIsCreateModalOpen(true);
     }
   }, [isOpenNewModal]);
+
+  const openCreateFollowUpModal = ({ clientId = '', projectId = '' } = {}) => {
+    setFormData({
+      ...INITIAL_FOLLOWUP_FORM,
+      client: clientId,
+      project: projectId,
+    });
+    setIsCreateModalOpen(true);
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -343,6 +390,77 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
     );
   });
 
+  // Build fallback pipeline locally if dedicated /pipeline endpoint isn't deployed yet
+  const resolvedPipeline = React.useMemo(() => {
+    const source =
+      pipelineData.length > 0
+        ? pipelineData
+        : clientsList
+            .filter((c) => !clientFilter || c._id === clientFilter)
+            .map((c) => {
+              const clientProjects = projectsList.filter((p) => {
+                const matchesClient = getProjectClientIds(p).includes(c._id);
+                const matchesProjFilter = !projectFilter || p._id === projectFilter;
+                return matchesClient && matchesProjFilter;
+              });
+              const clientFollowUps = filteredFollowUps.filter(
+                (f) => (f.client?._id || f.client) === c._id
+              );
+              const projectGroups = clientProjects.map((proj) => {
+                const pFollowUps = clientFollowUps.filter(
+                  (f) => (f.project?._id || f.project) === proj._id
+                );
+                return {
+                  project: proj,
+                  followUps: pFollowUps,
+                  stats: {
+                    total: pFollowUps.length,
+                    pendingCount: pFollowUps.filter((f) => f.status === 'pending' || f.status === 'in_progress').length,
+                    overdueCount: pFollowUps.filter((f) => f.slaStatus === 'overdue' || f.slaStatus === 'breached').length,
+                    completedCount: pFollowUps.filter((f) => f.status === 'completed').length,
+                  },
+                };
+              });
+              const generalFollowUps = clientFollowUps.filter((f) => !f.project);
+              return {
+                client: c,
+                projects: projectGroups,
+                generalFollowUps,
+                stats: {
+                  totalFollowUps: clientFollowUps.length,
+                  pendingCount: clientFollowUps.filter((f) => f.status === 'pending' || f.status === 'in_progress').length,
+                  overdueCount: clientFollowUps.filter((f) => f.slaStatus === 'overdue' || f.slaStatus === 'breached').length,
+                  completedCount: clientFollowUps.filter((f) => f.status === 'completed').length,
+                  projectCount: clientProjects.length,
+                },
+              };
+            });
+
+    if (!searchQuery) return source;
+    const q = searchQuery.toLowerCase();
+    return source.filter((entry) => {
+      const cName = entry.client?.clientName?.toLowerCase() || '';
+      const compName = entry.client?.companyName?.toLowerCase() || '';
+      const hasProjMatch = entry.projects?.some((pg) =>
+        pg.project?.projectName?.toLowerCase().includes(q)
+      );
+      return cName.includes(q) || compName.includes(q) || hasProjMatch;
+    });
+  }, [pipelineData, clientsList, projectsList, filteredFollowUps, clientFilter, projectFilter, searchQuery]);
+
+  const activePipelineEntry =
+    resolvedPipeline.find((entry) => entry.client?._id === selectedPipelineClientId) ||
+    resolvedPipeline[0] ||
+    null;
+
+  const filterBarProjects = clientFilter
+    ? projectsList.filter((p) => getProjectClientIds(p).includes(clientFilter))
+    : projectsList;
+
+  const modalProjects = formData.client
+    ? projectsList.filter((p) => getProjectClientIds(p).includes(formData.client))
+    : projectsList;
+
   return (
     <div className="page-container">
       {/* Top Header */}
@@ -373,14 +491,19 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
               <LayoutGrid size={14} />
               <span>{t('cadenceBoardView')}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('pipeline')}
+              className={`crm-tab ${viewMode === 'pipeline' ? 'is-active' : ''}`}
+            >
+              <GitBranch size={14} />
+              <span>{t('clientPipelineView')}</span>
+            </button>
           </div>
 
           <button
             type="button"
-            onClick={() => {
-              setFormData(INITIAL_FOLLOWUP_FORM);
-              setIsCreateModalOpen(true);
-            }}
+            onClick={() => openCreateFollowUpModal({ clientId: clientFilter, projectId: projectFilter })}
             className="crm-btn crm-btn-primary crm-btn-sm"
           >
             <Plus size={15} />
@@ -490,6 +613,44 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
           </div>
 
           <select
+            value={clientFilter}
+            onChange={(e) => {
+              const nextClient = e.target.value;
+              setClientFilter(nextClient);
+              if (nextClient) setSelectedPipelineClientId(nextClient);
+              if (projectFilter && nextClient) {
+                const chosenProj = projectsList.find((p) => p._id === projectFilter);
+                if (chosenProj && !getProjectClientIds(chosenProj).includes(nextClient)) {
+                  setProjectFilter('');
+                }
+              }
+            }}
+            className="crm-select"
+            style={{ width: 'auto', minWidth: '140px', height: '35px', fontSize: '0.82rem', paddingBlock: '0.35rem' }}
+          >
+            <option value="">{t('allClients')}</option>
+            {clientsList.map((c) => (
+              <option key={c._id} value={c._id}>
+                {c.clientName}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="crm-select"
+            style={{ width: 'auto', minWidth: '140px', height: '35px', fontSize: '0.82rem', paddingBlock: '0.35rem' }}
+          >
+            <option value="">{t('allProjects')}</option>
+            {filterBarProjects.map((p) => (
+              <option key={p._id} value={p._id}>
+                {p.projectName}
+              </option>
+            ))}
+          </select>
+
+          <select
             value={levelFilter}
             onChange={(e) => setLevelFilter(e.target.value)}
             className="crm-select"
@@ -545,10 +706,12 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
             <option value="urgent">{t('urgent')}</option>
           </select>
 
-          {(levelFilter || escalationFilter || typeFilter || priorityFilter || searchQuery) && (
+          {(clientFilter || projectFilter || levelFilter || escalationFilter || typeFilter || priorityFilter || searchQuery) && (
             <button
               type="button"
               onClick={() => {
+                setClientFilter('');
+                setProjectFilter('');
                 setLevelFilter('');
                 setEscalationFilter('');
                 setTypeFilter('');
@@ -568,6 +731,315 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
       {/* Main Content */}
       {loading ? (
         viewMode === 'board' ? <CardGridSkeleton count={5} /> : <TableSkeleton rows={5} />
+      ) : viewMode === 'pipeline' ? (
+        resolvedPipeline.length === 0 ? (
+          <EmptyState
+            icon={GitBranch}
+            title={t('noData')}
+            description={t('noFollowUpsDesc')}
+            actionLabel={t('scheduleNewTask')}
+            onAction={() => openCreateFollowUpModal()}
+          />
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-start' }}>
+            {/* Left Pane: Individual Client List */}
+            <div className="crm-card" style={{ flex: '1 1 280px', maxWidth: '100%', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '75vh', overflowY: 'auto' }}>
+              <div style={{ padding: '0.35rem 0.45rem', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                {t('clients')} ({resolvedPipeline.length})
+              </div>
+              {resolvedPipeline.map((entry) => {
+                const c = entry.client;
+                const isSelected = activePipelineEntry?.client?._id === c._id;
+                return (
+                  <button
+                    key={c._id}
+                    type="button"
+                    onClick={() => setSelectedPipelineClientId(c._id)}
+                    style={{
+                      textAlign: 'left',
+                      padding: '0.8rem 0.85rem',
+                      borderRadius: '10px',
+                      border: isSelected ? '1.5px solid var(--primary)' : '1px solid var(--border-color)',
+                      backgroundColor: isSelected ? 'var(--primary-light)' : 'var(--bg-muted)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.4rem',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {c.clientName}
+                      </span>
+                      <ChevronRight size={14} style={{ color: isSelected ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0 }} />
+                    </div>
+                    {c.companyName && (
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <Building2 size={11} />
+                        {c.companyName}
+                      </span>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center', marginTop: '0.1rem' }}>
+                      <StatusBadge status={c.status} />
+                      <span className="crm-badge crm-badge-neutral" style={{ fontSize: '0.68rem' }}>
+                        {entry.stats.projectCount} {t('projects')}
+                      </span>
+                      {entry.stats.overdueCount > 0 && (
+                        <span className="crm-badge crm-badge-danger" style={{ fontSize: '0.68rem' }}>
+                          {entry.stats.overdueCount} {t('overdue')}
+                        </span>
+                      )}
+                      {entry.stats.pendingCount > 0 && (
+                        <span className="crm-badge crm-badge-info" style={{ fontSize: '0.68rem' }}>
+                          {entry.stats.pendingCount} {t('pending')}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Right Pane: Selected Client & Associated Projects Follow-Up Pipeline */}
+            {activePipelineEntry && (
+              <div style={{ flex: '999 1 460px', display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+                {/* Client Summary Header */}
+                <div className="crm-card" style={{ padding: '1.15rem 1.25rem', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', minWidth: 0 }}>
+                    <Avatar name={activePipelineEntry.client.clientName} size={44} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <h3 style={{ margin: 0, fontSize: '1.08rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                          {activePipelineEntry.client.clientName}
+                        </h3>
+                        <StatusBadge status={activePipelineEntry.client.status} />
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: '0.85rem', marginTop: '0.25rem' }}>
+                        {activePipelineEntry.client.companyName && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                            <Building2 size={12} />
+                            {activePipelineEntry.client.companyName}
+                          </span>
+                        )}
+                        {activePipelineEntry.client.email && <span>{activePipelineEntry.client.email}</span>}
+                        {activePipelineEntry.client.phone && <span>{activePipelineEntry.client.phone}</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                    <span className="crm-badge crm-badge-neutral">
+                      {activePipelineEntry.stats.totalFollowUps} Total
+                    </span>
+                    <span className="crm-badge crm-badge-success">
+                      {activePipelineEntry.stats.completedCount} {t('completed')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openCreateFollowUpModal({ clientId: activePipelineEntry.client._id })}
+                      className="crm-btn crm-btn-primary crm-btn-sm"
+                    >
+                      <Plus size={14} />
+                      <span>{t('addClientFollowUp')}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Associated Projects Pipeline */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    <Briefcase size={16} style={{ color: 'var(--primary)' }} />
+                    {t('associatedProjects')} ({activePipelineEntry.projects.length})
+                  </h4>
+
+                  {activePipelineEntry.projects.length === 0 ? (
+                    <div className="crm-card" style={{ padding: '1.25rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {t('noClientProjects')}
+                    </div>
+                  ) : (
+                    activePipelineEntry.projects.map(({ project: proj, followUps: projFollowUps, stats: projStats }) => (
+                      <div key={proj._id} className="crm-card" style={{ padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', paddingBottom: '0.7rem', borderBottom: '1px solid var(--border-subtle)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                              {proj.projectCode && (
+                                <span className="crm-badge crm-badge-neutral" style={{ fontSize: '0.68rem' }}>
+                                  {proj.projectCode}
+                                </span>
+                              )}
+                              <strong style={{ fontSize: '0.96rem', color: 'var(--text-main)' }}>
+                                {proj.projectName}
+                              </strong>
+                              <StatusBadge status={proj.status} />
+                              <PriorityBadge priority={proj.priority} />
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '0.85rem', flexWrap: 'wrap' }}>
+                              <span>{t('progress')}: {proj.progress || 0}%</span>
+                              {proj.deadline && <span>{t('deadline')}: {formatDate(proj.deadline)}</span>}
+                              <span>{projStats.pendingCount} {t('pending')} • {projStats.completedCount} {t('completed')}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => openCreateFollowUpModal({ clientId: activePipelineEntry.client._id, projectId: proj._id })}
+                            className="crm-btn crm-btn-secondary crm-btn-sm"
+                          >
+                            <Plus size={14} />
+                            <span>{t('addProjectFollowUp')}</span>
+                          </button>
+                        </div>
+
+                        {projFollowUps.length === 0 ? (
+                          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                            {t('noProjectFollowUps')}
+                          </p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            {projFollowUps.map((task) => {
+                              const isCompleted = task.status === 'completed';
+                              return (
+                                <div
+                                  key={task._id}
+                                  style={{
+                                    padding: '0.75rem 0.9rem',
+                                    borderRadius: '10px',
+                                    backgroundColor: 'var(--bg-muted)',
+                                    border: '1px solid var(--border-color)',
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    gap: '0.75rem',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', minWidth: 0, flex: '1 1 260px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleComplete(task)}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: isCompleted ? 'var(--success)' : 'var(--text-muted)', display: 'flex', padding: 0, marginTop: '2px' }}
+                                      title={isCompleted ? t('reopen') : t('markComplete')}
+                                    >
+                                      <CheckCircle2 size={18} />
+                                    </button>
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                        <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)', textDecoration: isCompleted ? 'line-through' : 'none' }}>
+                                          {task.title}
+                                        </span>
+                                        <CadenceLevelBadge level={task.level || 1} />
+                                        <SlaBadge slaStatus={task.slaStatus} />
+                                        <EscalationBadge tier={task.escalationTier} />
+                                      </div>
+                                      <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                                          <Clock size={11} />
+                                          {formatDateTime(task.scheduledAt)}
+                                        </span>
+                                        <span className="crm-badge crm-badge-neutral" style={{ fontSize: '0.68rem' }}>
+                                          {getTypeIcon(task.type)}
+                                          {task.type}
+                                        </span>
+                                        {task.outcome && getOutcomeBadge(task.outcome)}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <button type="button" onClick={() => handleOpenOutcome(task)} className="crm-btn crm-btn-secondary crm-btn-sm" style={{ padding: '0.28rem 0.55rem', fontSize: '0.74rem' }}>
+                                      <CheckCircle size={12} />
+                                      <span>{t('logOutcome')}</span>
+                                    </button>
+                                    <button type="button" onClick={() => handleOpenEdit(task)} className="crm-btn crm-btn-ghost crm-btn-icon" title={t('edit')}>
+                                      <Edit size={14} />
+                                    </button>
+                                    <button type="button" onClick={() => setDeleteTargetId(task._id)} className="crm-btn crm-btn-ghost crm-btn-icon" style={{ color: 'var(--danger)' }} title={t('delete')}>
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Client-Level General Follow-Ups */}
+                {activePipelineEntry.generalFollowUps.length > 0 && (
+                  <div className="crm-card" style={{ padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                      {t('generalClientFollowUps')} ({activePipelineEntry.generalFollowUps.length})
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                      {activePipelineEntry.generalFollowUps.map((task) => {
+                        const isCompleted = task.status === 'completed';
+                        return (
+                          <div
+                            key={task._id}
+                            style={{
+                              padding: '0.75rem 0.9rem',
+                              borderRadius: '10px',
+                              backgroundColor: 'var(--bg-muted)',
+                              border: '1px solid var(--border-color)',
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '0.75rem',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', minWidth: 0, flex: '1 1 260px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleComplete(task)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: isCompleted ? 'var(--success)' : 'var(--text-muted)', display: 'flex', padding: 0, marginTop: '2px' }}
+                                title={isCompleted ? t('reopen') : t('markComplete')}
+                              >
+                                <CheckCircle2 size={18} />
+                              </button>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)', textDecoration: isCompleted ? 'line-through' : 'none' }}>
+                                    {task.title}
+                                  </span>
+                                  <CadenceLevelBadge level={task.level || 1} />
+                                  <SlaBadge slaStatus={task.slaStatus} />
+                                </div>
+                                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <Clock size={11} />
+                                    {formatDateTime(task.scheduledAt)}
+                                  </span>
+                                  {task.outcome && getOutcomeBadge(task.outcome)}
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <button type="button" onClick={() => handleOpenOutcome(task)} className="crm-btn crm-btn-secondary crm-btn-sm" style={{ padding: '0.28rem 0.55rem', fontSize: '0.74rem' }}>
+                                <CheckCircle size={12} />
+                                <span>{t('logOutcome')}</span>
+                              </button>
+                              <button type="button" onClick={() => handleOpenEdit(task)} className="crm-btn crm-btn-ghost crm-btn-icon" title={t('edit')}>
+                                <Edit size={14} />
+                              </button>
+                              <button type="button" onClick={() => setDeleteTargetId(task._id)} className="crm-btn crm-btn-ghost crm-btn-icon" style={{ color: 'var(--danger)' }} title={t('delete')}>
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
       ) : filteredFollowUps.length === 0 ? (
         <EmptyState
           icon={CalendarCheck}
@@ -1105,7 +1577,17 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
               <label className="crm-label">{t('client')}</label>
               <select
                 value={formData.client}
-                onChange={(e) => setFormData({ ...formData, client: e.target.value })}
+                onChange={(e) => {
+                  const nextClientId = e.target.value;
+                  const currentProj = projectsList.find((p) => p._id === formData.project);
+                  const keepProject =
+                    !nextClientId || (currentProj && getProjectClientIds(currentProj).includes(nextClientId));
+                  setFormData({
+                    ...formData,
+                    client: nextClientId,
+                    project: keepProject ? formData.project : '',
+                  });
+                }}
                 className="crm-select"
               >
                 <option value="">-- {t('selectClient')} --</option>
@@ -1121,11 +1603,20 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
               <label className="crm-label">{t('projects')}</label>
               <select
                 value={formData.project}
-                onChange={(e) => setFormData({ ...formData, project: e.target.value })}
+                onChange={(e) => {
+                  const nextProjId = e.target.value;
+                  const chosenProj = projectsList.find((p) => p._id === nextProjId);
+                  const projClientIds = getProjectClientIds(chosenProj);
+                  setFormData({
+                    ...formData,
+                    project: nextProjId,
+                    client: formData.client || projClientIds[0] || '',
+                  });
+                }}
                 className="crm-select"
               >
                 <option value="">-- Select Project --</option>
-                {projectsList.map((p) => (
+                {modalProjects.map((p) => (
                   <option key={p._id} value={p._id}>
                     {p.projectName}
                   </option>

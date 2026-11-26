@@ -49,6 +49,7 @@ export const projectsApi = {
 
 export const followUpsApi = {
   getAll: (params) => api.get('/followups', params),
+  getPipeline: (params) => api.get('/followups/pipeline', params),
   getUpcoming: () => api.get('/followups/upcoming'),
   getAnalytics: () => api.get('/followups/analytics'),
   getById: (id) => api.get(`/followups/${id}`),

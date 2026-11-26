@@ -6,6 +6,41 @@ import { sendTelegramMessage, shouldDispatchTelegramEvent } from "../utils/teleg
 import { toCsv } from "../utils/csv.js";
 import { escapeRegex, parsePagination } from "../middleware/validate.js";
 
+export const DEAL_STAGE_TO_CLIENT_STATUS = {
+  qualified: "lead",
+  contacted: "contacted",
+  demo_scheduled: "prospect",
+  proposal_sent: "proposal_sent",
+  negotiation: "negotiation",
+  closed_won: "won",
+  closed_lost: "lost",
+};
+
+export const syncClientStatusFromDealStage = async (clientId, stage, performedBy = null) => {
+  const nextClientStatus = DEAL_STAGE_TO_CLIENT_STATUS[stage];
+  if (!clientId || !nextClientStatus) return null;
+
+  const client = await Client.findById(clientId);
+  if (!client || client.status === nextClientStatus) return client;
+
+  const previousClientStatus = client.status;
+  client.status = nextClientStatus;
+  await client.save();
+
+  if (performedBy) {
+    await logActivity({
+      action: "sync_client_status",
+      description: `Client "${client.clientName}" status updated (${previousClientStatus} → ${nextClientStatus}) from deal stage "${stage}"`,
+      performedBy,
+      entityType: "client",
+      entityId: client._id,
+      changes: { before: { status: previousClientStatus }, after: { status: nextClientStatus } },
+    });
+  }
+
+  return client;
+};
+
 export const computePipelineForecast = (deals) => {
   const stageBreakdown = {};
   DEAL_STAGES.forEach((stage) => {
@@ -174,7 +209,9 @@ export const createDeal = async (req, res, next) => {
       closedAt: stage === "closed_won" || stage === "closed_lost" ? new Date() : undefined,
     });
 
-    await deal.populate("client", "clientName companyName");
+    await syncClientStatusFromDealStage(deal.client, deal.stage, req.user._id);
+
+    await deal.populate("client", "clientName companyName status");
     await deal.populate("owner", "firstName lastName email");
 
     await logActivity({
@@ -220,6 +257,7 @@ export const updateDeal = async (req, res, next) => {
     }
 
     const previousStage = deal.stage;
+    const previousClient = deal.client ? deal.client.toString() : "";
     const updates = { ...req.body };
 
     if (updates.amount !== undefined) updates.amount = Number(updates.amount) || 0;
@@ -235,6 +273,12 @@ export const updateDeal = async (req, res, next) => {
 
     Object.assign(deal, updates);
     await deal.save();
+
+    const currentClient = deal.client ? deal.client.toString() : "";
+    if (previousStage !== deal.stage || previousClient !== currentClient) {
+      await syncClientStatusFromDealStage(deal.client, deal.stage, req.user._id);
+    }
+
     await deal.populate("client", "clientName companyName status");
     await deal.populate("owner", "firstName lastName email");
 
@@ -281,16 +325,8 @@ export const moveDealStage = async (req, res, next) => {
 
     await deal.save();
 
-    // Sync client lifecycle status on won/lost transitions
-    if (deal.client) {
-      if (stage === "closed_won") {
-        await Client.findByIdAndUpdate(deal.client, { status: "won" });
-      } else if (stage === "proposal_sent") {
-        await Client.findByIdAndUpdate(deal.client, { status: "proposal_sent" });
-      } else if (stage === "negotiation") {
-        await Client.findByIdAndUpdate(deal.client, { status: "negotiation" });
-      }
-    }
+    // Sync associated client lifecycle status whenever deal stage changes
+    await syncClientStatusFromDealStage(deal.client, stage, req.user._id);
 
     await deal.populate("client", "clientName companyName status");
     await deal.populate("owner", "firstName lastName email");

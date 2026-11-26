@@ -4,8 +4,33 @@ import { logActivity } from "../utils/activityLogger.js";
 import { broadcastNotification, createNotification } from "../utils/notificationService.js";
 import { sendTelegramMessage, shouldDispatchTelegramEvent } from "../utils/telegramService.js";
 
-const normalizeProjectPayload = (body = {}) => {
+export const normalizeProjectPayload = (body = {}) => {
   const normalized = { ...body };
+
+  if (Array.isArray(normalized.clients)) {
+    const uniqueClients = [
+      ...new Set(
+        normalized.clients
+          .map((c) => (typeof c === "object" && c?._id ? String(c._id) : String(c || "")))
+          .filter(Boolean)
+      ),
+    ];
+    normalized.clients = uniqueClients;
+    if (uniqueClients.length > 0) {
+      if (!normalized.client || !uniqueClients.includes(String(normalized.client))) {
+        normalized.client = uniqueClients[0];
+      }
+    } else {
+      delete normalized.client;
+    }
+  } else if (normalized.client) {
+    const primaryId =
+      typeof normalized.client === "object" && normalized.client?._id
+        ? String(normalized.client._id)
+        : String(normalized.client);
+    normalized.client = primaryId;
+    normalized.clients = [primaryId];
+  }
 
   if (normalized.budget !== undefined && (typeof normalized.budget !== "object" || normalized.budget === null)) {
     normalized.budget = { amount: Number(normalized.budget) || 0 };
@@ -44,8 +69,11 @@ export const getProjects = async (req, res, next) => {
     } = req.query;
 
     const query = {};
+    const andConditions = [];
 
-    if (client) query.client = client;
+    if (client) {
+      andConditions.push({ $or: [{ client }, { clients: client }] });
+    }
     if (status) query.status = status;
     if (category) query.category = category;
     if (priority) query.priority = priority;
@@ -53,11 +81,17 @@ export const getProjects = async (req, res, next) => {
 
     if (search) {
       const safeSearch = new RegExp(escapeRegex(search), "i");
-      query.$or = [
-        { projectName: safeSearch },
-        { projectCode: safeSearch },
-        { description: safeSearch },
-      ];
+      andConditions.push({
+        $or: [
+          { projectName: safeSearch },
+          { projectCode: safeSearch },
+          { description: safeSearch },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      query.$and = andConditions;
     }
 
     const { page: pageNum, limit: limitNum, skip } = parsePagination({ page, limit });
@@ -66,7 +100,8 @@ export const getProjects = async (req, res, next) => {
 
     const total = await Project.countDocuments(query);
     const projects = await Project.find(query)
-      .populate("client", "clientName companyName email phone")
+      .populate("client", "clientName companyName email phone status")
+      .populate("clients", "clientName companyName email phone status")
       .populate("projectManager", "firstName lastName email avatar")
       .populate("teamMembers.user", "firstName lastName email avatar role")
       .sort(sort)
@@ -92,7 +127,8 @@ export const getProjects = async (req, res, next) => {
 export const getProjectById = async (req, res, next) => {
   try {
     const project = await Project.findById(req.params.id)
-      .populate("client", "clientName companyName email phone contacts address")
+      .populate("client", "clientName companyName email phone contacts address status")
+      .populate("clients", "clientName companyName email phone status")
       .populate("projectManager", "firstName lastName email avatar phone")
       .populate("teamMembers.user", "firstName lastName email avatar role department")
       .populate("attachments.uploadedBy", "firstName lastName")
@@ -119,6 +155,9 @@ export const createProject = async (req, res, next) => {
     };
 
     const project = await Project.create(projectData);
+    await project.populate("client", "clientName companyName email phone status");
+    await project.populate("clients", "clientName companyName email phone status");
+    await project.populate("teamMembers.user", "firstName lastName email avatar role");
 
     await logActivity({
       action: "create_project",
@@ -192,6 +231,9 @@ export const updateProject = async (req, res, next) => {
     }
 
     await project.save();
+    await project.populate("client", "clientName companyName email phone status");
+    await project.populate("clients", "clientName companyName email phone status");
+    await project.populate("teamMembers.user", "firstName lastName email avatar role");
 
     await logActivity({
       action: "update_project",

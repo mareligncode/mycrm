@@ -187,6 +187,7 @@ export const Deals = ({ isOpenNewModal, onCloseNewModal }) => {
         closeModal();
         toast.success(t('savedSuccessfully'));
         loadData();
+        loadLookups();
         if (detailDeal && res.data && detailDeal._id === res.data._id) {
           setDetailDeal(res.data);
         }
@@ -205,6 +206,7 @@ export const Deals = ({ isOpenNewModal, onCloseNewModal }) => {
       if (res.success) {
         toast.success(`${deal.title} → ${t(newStage)}`);
         loadData();
+        loadLookups();
         if (detailDeal && res.data && detailDeal._id === res.data._id) {
           setDetailDeal(res.data);
         }

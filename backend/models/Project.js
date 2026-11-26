@@ -10,6 +10,11 @@ const projectSchema = new mongoose.Schema({
     required: true,
   },
 
+  clients: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Client",
+  }],
+
   description: String,
 
   category: {
@@ -62,6 +67,7 @@ const projectSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 projectSchema.index({ client: 1, status: 1 });
+projectSchema.index({ clients: 1, status: 1 });
 projectSchema.index({ projectManager: 1, deadline: 1 });
 
 export default mongoose.model("Project", projectSchema);
