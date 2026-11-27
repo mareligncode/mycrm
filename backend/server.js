@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import mongoose from "mongoose";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -21,8 +22,8 @@ if (!process.env.JWT_SECRET) {
   console.warn("⚠️ JWT_SECRET is not set in environment; falling back to development secret.");
 }
 
-// Connect to MongoDB
-connectDB();
+// Kick off initial connection in background; request middleware awaits readiness
+connectDB().catch(() => {});
 
 const app = express();
 
@@ -58,12 +59,28 @@ app.use("/api/auth/register-admin", authLimiter);
 app.use("/api", apiLimiter);
 
 // Health Check
-app.get("/api/health", (req, res) => {
+app.get("/api/health", async (req, res) => {
+  const states = ["disconnected", "connected", "connecting", "disconnecting"];
+  if (mongoose.connection.readyState !== 1) {
+    await connectDB().catch(() => {});
+  }
   res.status(200).json({
     success: true,
     message: "CRM API is healthy and running",
+    db: states[mongoose.connection.readyState] || "unknown",
     timestamp: new Date().toISOString(),
   });
+});
+
+// Ensure MongoDB connection is ready before handling database-backed API routes
+app.use("/api", async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    res.status(503);
+    next(error);
+  }
 });
 
 // API Routes
@@ -74,9 +91,13 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`🚀 CRM Backend Server running in ${process.env.NODE_ENV || "development"} mode on port ${PORT}`);
-  if (process.env.ENABLE_SCHEDULER !== "false") {
-    startScheduler(Number(process.env.SCHEDULER_INTERVAL_MS || 60000));
-  }
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 CRM Backend Server running in ${process.env.NODE_ENV || "development"} mode on port ${PORT}`);
+    if (process.env.ENABLE_SCHEDULER !== "false") {
+      startScheduler(Number(process.env.SCHEDULER_INTERVAL_MS || 60000));
+    }
+  });
+}
+
+export default app;

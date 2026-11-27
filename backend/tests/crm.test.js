@@ -8,6 +8,7 @@ import Project from "../models/Project.js";
 import { normalizeProjectPayload } from "../controllers/projectController.js";
 import { escapeRegex, isValidEmail, isValidObjectId, parsePagination } from "../middleware/validate.js";
 import { createRateLimiter } from "../middleware/security.js";
+import connectDB from "../config/db.js";
 
 test("CSV serializer neutralizes formula injection and escapes quotes/newlines", () => {
   assert.equal(sanitizeCsvCell("=CMD()"), "'=CMD()");
@@ -127,4 +128,14 @@ test("normalizeProjectPayload and Project schema support multiple clients", asyn
   const doc = new Project({ ...normalized, createdBy: c1 });
   await doc.validate();
   assert.equal(doc.clients.length, 2);
+});
+
+test("connectDB rejects immediately with a clear error when MONGO_URI is missing", async () => {
+  const prevUri = process.env.MONGO_URI;
+  delete process.env.MONGO_URI;
+  try {
+    await assert.rejects(() => connectDB(), /MONGO_URI environment variable is not configured/);
+  } finally {
+    if (prevUri !== undefined) process.env.MONGO_URI = prevUri;
+  }
 });
