@@ -135,6 +135,8 @@ export const translations = {
     in_progress: "In Progress",
     on_hold: "On Hold",
     completed: "Completed",
+    passed: "Passed",
+    pending: "Pending",
     cancelled: "Cancelled",
     
     // Priorities
@@ -498,6 +500,8 @@ export const translations = {
     in_progress: "በሂደት ላይ",
     on_hold: "ለጊዜው የቆመ",
     completed: "የተጠናቀቀ",
+    passed: "ያለፈ",
+    pending: "በመጠባበቅ ላይ",
     cancelled: "የተሰረዘ",
     
     // Priorities

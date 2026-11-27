@@ -449,7 +449,56 @@ export const updateFollowUp = async (req, res, next) => {
     }
 
     const previousStatus = followUp.status;
+    const previousLevel = followUp.level || 1;
+    const prevSnapshot = {
+      title: followUp.title,
+      client: followUp.client,
+      project: followUp.project,
+      assignedTo: followUp.assignedTo,
+      level: previousLevel,
+      sequenceAttempt: followUp.sequenceAttempt || 1,
+      escalationTier: followUp.escalationTier,
+      type: followUp.type,
+      priority: followUp.priority,
+      scheduledAt: followUp.scheduledAt,
+      outcome: followUp.outcome,
+      outcomeNotes: followUp.outcomeNotes,
+      estimatedDealValue: followUp.estimatedDealValue,
+      notes: followUp.notes,
+    };
+
     Object.assign(followUp, req.body);
+
+    const newLevel = Number(followUp.level || 1);
+    const isStageAdvancing =
+      newLevel > previousLevel &&
+      previousStatus !== "completed" &&
+      previousStatus !== "cancelled" &&
+      req.body.status !== "completed" &&
+      req.body.status !== "cancelled";
+
+    if (isStageAdvancing) {
+      const passedStage = await FollowUp.create({
+        ...prevSnapshot,
+        createdBy: req.user._id,
+        status: "completed",
+        completedAt: new Date(),
+        outcome: prevSnapshot.outcome && prevSnapshot.outcome !== "pending" ? prevSnapshot.outcome : "connected_interested",
+        outcomeNotes: prevSnapshot.outcomeNotes || `Passed to Level ${newLevel}`,
+        passedToLevel: newLevel,
+        nextFollowUp: followUp._id,
+        reminderSent: true,
+      });
+
+      followUp.previousFollowUp = passedStage._id;
+      followUp.status = req.body.status || "pending";
+      if (!req.body.outcome) {
+        followUp.outcome = "pending";
+      }
+      if (!req.body.sequenceAttempt) {
+        followUp.sequenceAttempt = prevSnapshot.sequenceAttempt + 1;
+      }
+    }
 
     if (req.body.status === "completed" && previousStatus !== "completed") {
       followUp.completedAt = new Date();
@@ -552,8 +601,13 @@ export const logOutcomeAndAdvance = async (req, res, next) => {
         status: "pending",
         priority: nextPriority,
         scheduledAt: new Date(nextScheduledAt),
+        previousFollowUp: followUp._id,
         notes: outcomeNotes ? `Previous Level ${followUp.level} Outcome: ${followUp.outcome}. Notes: ${outcomeNotes}` : "",
       });
+
+      followUp.passedToLevel = computedLevel;
+      followUp.nextFollowUp = nextFollowUp._id;
+      await followUp.save();
 
       // Update client's nextFollowUpAt
       if (followUp.client) {

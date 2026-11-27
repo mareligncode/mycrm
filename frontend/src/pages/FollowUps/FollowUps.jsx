@@ -83,6 +83,88 @@ const getProjectClientIds = (project) => {
   return [...ids].filter(Boolean);
 };
 
+const getFollowUpGroupKey = (task) => {
+  const clientId = task.client?._id || task.client || 'no-client';
+  const projectId = task.project?._id || task.project || 'general';
+  return `${clientId}::${projectId}`;
+};
+
+const buildMaxLevelByGroup = (tasks = []) => {
+  const map = new Map();
+  tasks.forEach((task) => {
+    const key = getFollowUpGroupKey(task);
+    const lvl = Number(task.level || 1);
+    map.set(key, Math.max(map.get(key) || 0, lvl));
+  });
+  return map;
+};
+
+const getTaskStageStatus = (task, maxLevelByGroup) => {
+  if (task.isSyntheticPassed) return 'passed';
+  if (task.status === 'completed') {
+    const maxLvl = maxLevelByGroup.get(getFollowUpGroupKey(task)) || Number(task.level || 1);
+    if (task.passedToLevel || task.nextFollowUp || maxLvl > Number(task.level || 1)) {
+      return 'passed';
+    }
+    return 'completed';
+  }
+  return task.status || 'pending';
+};
+
+const StageProgressionStrip = ({ tasks = [], t }) => {
+  if (!tasks.length) return null;
+  const maxLevel = tasks.reduce((max, item) => Math.max(max, Number(item.level || 1)), 1);
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+      {[1, 2, 3, 4, 5].map((lvl) => {
+        const stageTasks = tasks.filter((item) => Number(item.level || 1) === lvl);
+        const hasPending = stageTasks.some((item) => item.status === 'pending' || item.status === 'in_progress');
+        const hasCompleted = stageTasks.some((item) => item.status === 'completed');
+        const isPassed = !hasPending && (hasCompleted || lvl < maxLevel);
+
+        let bg = 'var(--bg-muted)';
+        let border = 'var(--border-color)';
+        let color = 'var(--text-muted)';
+        let stateLabel = null;
+
+        if (hasPending) {
+          bg = 'rgba(245, 158, 11, 0.12)';
+          border = 'rgba(245, 158, 11, 0.35)';
+          color = '#d97706';
+          stateLabel = t('pending');
+        } else if (isPassed) {
+          bg = 'rgba(16, 185, 129, 0.12)';
+          border = 'rgba(16, 185, 129, 0.35)';
+          color = '#059669';
+          stateLabel = t('passed');
+        }
+
+        return (
+          <div
+            key={lvl}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              padding: '0.24rem 0.55rem',
+              borderRadius: '999px',
+              backgroundColor: bg,
+              border: `1px solid ${border}`,
+              color,
+              fontSize: '0.7rem',
+              fontWeight: hasPending || isPassed ? 700 : 500,
+            }}
+          >
+            <span>L{lvl}</span>
+            {stateLabel && <span>• {stateLabel}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
   const { t, formatDate, formatDateTime } = useLanguage();
   const toast = useToast();
@@ -452,6 +534,83 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
     resolvedPipeline.find((entry) => entry.client?._id === selectedPipelineClientId) ||
     resolvedPipeline[0] ||
     null;
+
+  const allKnownFollowUps = React.useMemo(() => {
+    const byId = new Map();
+    followUps.forEach((task) => byId.set(task._id, task));
+    pipelineData.forEach((entry) => {
+      entry.projects?.forEach((pg) => {
+        pg.followUps?.forEach((task) => {
+          if (!byId.has(task._id)) byId.set(task._id, task);
+        });
+      });
+      entry.generalFollowUps?.forEach((task) => {
+        if (!byId.has(task._id)) byId.set(task._id, task);
+      });
+    });
+    return [...byId.values()];
+  }, [followUps, pipelineData]);
+
+  const maxLevelByGroup = React.useMemo(
+    () => buildMaxLevelByGroup(allKnownFollowUps),
+    [allKnownFollowUps]
+  );
+
+  const boardTasks = React.useMemo(() => {
+    if (levelFilter || activeTab === 'completed') {
+      return filteredFollowUps;
+    }
+
+    const baseTasks = [...filteredFollowUps];
+    const seenIds = new Set(baseTasks.map((tItem) => tItem._id));
+    const activeGroupKeys = new Set(baseTasks.map((tItem) => getFollowUpGroupKey(tItem)));
+
+    // Include completed/passed stage tasks for visible groups even when filtered by Today/Upcoming/Overdue
+    allKnownFollowUps.forEach((task) => {
+      if (seenIds.has(task._id)) return;
+      const key = getFollowUpGroupKey(task);
+      if (!activeGroupKeys.has(key)) return;
+      if (task.status === 'completed') {
+        baseTasks.push(task);
+        seenIds.add(task._id);
+      }
+    });
+
+    // Ensure no earlier stage column is left empty when a client/project has moved to a higher stage
+    const tasksByGroup = new Map();
+    baseTasks.forEach((task) => {
+      const key = getFollowUpGroupKey(task);
+      if (!tasksByGroup.has(key)) tasksByGroup.set(key, []);
+      tasksByGroup.get(key).push(task);
+    });
+
+    const syntheticTasks = [];
+    tasksByGroup.forEach((groupTasks, groupKey) => {
+      const maxLvl = groupTasks.reduce((max, item) => Math.max(max, Number(item.level || 1)), 1);
+      const presentLevels = new Set(groupTasks.map((item) => Number(item.level || 1)));
+      const sampleTask = groupTasks.find((item) => Number(item.level || 1) === maxLvl) || groupTasks[0];
+
+      for (let lvl = 1; lvl < maxLvl; lvl += 1) {
+        if (!presentLevels.has(lvl)) {
+          const clientLabel = sampleTask.client?.clientName || 'Client';
+          const projLabel = sampleTask.project?.projectName ? ` • ${sampleTask.project.projectName}` : '';
+          syntheticTasks.push({
+            _id: `synthetic-passed-${groupKey}-${lvl}`,
+            isSyntheticPassed: true,
+            level: lvl,
+            status: 'passed',
+            passedToLevel: maxLvl,
+            title: `${clientLabel}${projLabel}`,
+            client: sampleTask.client,
+            project: sampleTask.project,
+            scheduledAt: sampleTask.scheduledAt,
+          });
+        }
+      }
+    });
+
+    return [...baseTasks, ...syntheticTasks];
+  }, [filteredFollowUps, allKnownFollowUps, levelFilter, activeTab]);
 
   const filterBarProjects = clientFilter
     ? projectsList.filter((p) => getProjectClientIds(p).includes(clientFilter))
@@ -897,8 +1056,11 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                           </p>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            <StageProgressionStrip tasks={projFollowUps} t={t} />
                             {projFollowUps.map((task) => {
+                              const stageStatus = getTaskStageStatus(task, maxLevelByGroup);
                               const isCompleted = task.status === 'completed';
+                              const isPassed = stageStatus === 'passed';
                               return (
                                 <div
                                   key={task._id}
@@ -925,10 +1087,11 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                                     </button>
                                     <div style={{ minWidth: 0 }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                        <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)', textDecoration: isCompleted ? 'line-through' : 'none' }}>
+                                        <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)', textDecoration: isCompleted && !isPassed ? 'line-through' : 'none' }}>
                                           {task.title}
                                         </span>
                                         <CadenceLevelBadge level={task.level || 1} />
+                                        <StatusBadge status={stageStatus} />
                                         <SlaBadge slaStatus={task.slaStatus} />
                                         <EscalationBadge tier={task.escalationTier} />
                                       </div>
@@ -974,9 +1137,12 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                     <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
                       {t('generalClientFollowUps')} ({activePipelineEntry.generalFollowUps.length})
                     </h4>
+                    <StageProgressionStrip tasks={activePipelineEntry.generalFollowUps} t={t} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
                       {activePipelineEntry.generalFollowUps.map((task) => {
+                        const stageStatus = getTaskStageStatus(task, maxLevelByGroup);
                         const isCompleted = task.status === 'completed';
+                        const isPassed = stageStatus === 'passed';
                         return (
                           <div
                             key={task._id}
@@ -1003,10 +1169,11 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                               </button>
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                  <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)', textDecoration: isCompleted ? 'line-through' : 'none' }}>
+                                  <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)', textDecoration: isCompleted && !isPassed ? 'line-through' : 'none' }}>
                                     {task.title}
                                   </span>
                                   <CadenceLevelBadge level={task.level || 1} />
+                                  <StatusBadge status={stageStatus} />
                                   <SlaBadge slaStatus={task.slaStatus} />
                                 </div>
                                 <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
@@ -1060,7 +1227,7 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
             { level: 4, title: 'Level 4: Urgent Negotiation', color: '#ea580c' },
             { level: 5, title: 'Level 5: Closing & Win-Back', color: '#10b981' },
           ].map((col) => {
-            const columnTasks = filteredFollowUps.filter((task) => (task.level || 1) === col.level);
+            const columnTasks = boardTasks.filter((task) => Number(task.level || 1) === col.level);
             return (
               <div
                 key={col.level}
@@ -1094,7 +1261,37 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                     </div>
                   ) : (
                     columnTasks.map((task) => {
+                      const stageStatus = getTaskStageStatus(task, maxLevelByGroup);
+                      const isPassed = stageStatus === 'passed';
                       const isCompleted = task.status === 'completed';
+
+                      if (task.isSyntheticPassed) {
+                        return (
+                          <div
+                            key={task._id}
+                            className="crm-card"
+                            style={{
+                              padding: '0.8rem',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.45rem',
+                              borderLeft: '3.5px solid var(--success)',
+                              opacity: 0.88,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                              <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                {task.title}
+                              </span>
+                              <StatusBadge status="passed" />
+                            </div>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              {t('stageProgress')}: L{task.level} → L{task.passedToLevel}
+                            </span>
+                          </div>
+                        );
+                      }
+
                       return (
                         <div
                           key={task._id}
@@ -1104,18 +1301,25 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                             display: 'flex',
                             flexDirection: 'column',
                             gap: '0.5rem',
-                            borderLeft: `3.5px solid ${task.escalationTier === 'manager_escalation' || task.escalationTier === 'executive_alert' ? 'var(--danger)' : col.color}`,
-                            opacity: isCompleted ? 0.72 : 1,
+                            borderLeft: `3.5px solid ${
+                              isPassed
+                                ? 'var(--success)'
+                                : task.escalationTier === 'manager_escalation' || task.escalationTier === 'executive_alert'
+                                ? 'var(--danger)'
+                                : col.color
+                            }`,
+                            opacity: isPassed ? 0.88 : isCompleted ? 0.72 : 1,
                           }}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
-                            <span style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)', textDecoration: isCompleted ? 'line-through' : 'none' }}>
+                            <span style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)', textDecoration: isCompleted && !isPassed ? 'line-through' : 'none' }}>
                               {task.title}
                             </span>
                             <PriorityBadge priority={task.priority} />
                           </div>
 
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                            <StatusBadge status={stageStatus} />
                             <span className="crm-badge crm-badge-neutral" style={{ fontSize: '0.7rem' }}>
                               {getTypeIcon(task.type)}
                               {task.type}
@@ -1174,6 +1378,8 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {filteredFollowUps.map((task) => {
+            const stageStatus = getTaskStageStatus(task, maxLevelByGroup);
+            const isPassed = stageStatus === 'passed';
             const isCompleted = task.status === 'completed';
             const isOverdue = task.slaStatus === 'overdue' || task.slaStatus === 'breached';
             const assigneeName = task.assignedTo ? `${task.assignedTo.firstName} ${task.assignedTo.lastName}` : '';
@@ -1190,7 +1396,7 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                   justifyContent: 'space-between',
                   gap: '1rem',
                   borderLeft: `4.5px solid ${
-                    isCompleted
+                    isCompleted || isPassed
                       ? 'var(--success)'
                       : task.escalationTier === 'manager_escalation' || task.escalationTier === 'executive_alert' || isOverdue
                       ? 'var(--danger)'
@@ -1223,12 +1429,13 @@ export const FollowUps = ({ isOpenNewModal, onCloseNewModal }) => {
                           fontSize: '0.96rem',
                           fontWeight: 600,
                           color: 'var(--text-main)',
-                          textDecoration: isCompleted ? 'line-through' : 'none',
+                          textDecoration: isCompleted && !isPassed ? 'line-through' : 'none',
                         }}
                       >
                         {task.title}
                       </span>
                       <CadenceLevelBadge level={task.level || 1} />
+                      <StatusBadge status={stageStatus} />
                       <span className="crm-badge crm-badge-neutral" style={{ fontSize: '0.7rem' }}>
                         Touch #{task.sequenceAttempt || 1}
                       </span>

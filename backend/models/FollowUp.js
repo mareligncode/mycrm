@@ -108,6 +108,19 @@ const followUpSchema = new mongoose.Schema({
   nextFollowUpAt: Date,
   nextActionSuggestion: String,
 
+  passedToLevel: {
+    type: Number,
+    enum: [1, 2, 3, 4, 5],
+  },
+  previousFollowUp: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "FollowUp",
+  },
+  nextFollowUp: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "FollowUp",
+  },
+
   reminderSent: { type: Boolean, default: false },
 }, { timestamps: true });
 

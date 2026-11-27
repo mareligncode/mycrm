@@ -9,6 +9,7 @@ export const StatusBadge = ({ status }) => {
       case 'won':
       case 'closed_won':
       case 'completed':
+      case 'passed':
       case 'active':
         return 'crm-badge-success';
       case 'in_progress':
